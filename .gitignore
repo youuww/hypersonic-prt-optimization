@@ -1,0 +1,77 @@
+# ============================================
+# .gitignore for Hypersonic CFD Pipeline
+# ============================================
+
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+*.egg
+.venv/
+venv/
+ENV/
+
+# ----- SU2 / CFD Outputs -----
+# Large simulation files (regenerate with code)
+*.vtu
+*.vtk
+*.dat
+*.csv
+!data/*.csv          # Keep DNS dataset
+restart_*.dat
+flow_*.dat
+surface_*.vtu
+
+# ----- Results Directories -----
+# These contain generated data - too large for git
+results/
+My_Results/
+
+# ----- Windows/WSL Metadata -----
+*:Zone.Identifier
+*Zone.Identifier*
+Thumbs.db
+desktop.ini
+
+# ----- Archives & Backups -----
+archive/
+*.bak
+*.backup
+*~
+
+# ----- Documentation (PDFs too large for git) -----
+docs/
+*.pdf
+
+# ----- Personal Documents (CV, Grades - NEVER commit) -----
+personal/
+
+# ----- IDE & Editor -----
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ----- AI Assistant Configuration (Private) -----
+# These contain personal career info and should not be public
+.cursorrules         
+.cursor/             
+CONTEXT.md
+
+# ----- Temporary Files -----
+*.tmp
+*.temp
+*.log
+run_*.cfg
+
+# ----- Keep these (override above) -----
+!config/*.cfg
+!config/*.su2
+!data/DNS Dataset.csv
+!README.md
+!requirements.txt

@@ -40,9 +40,9 @@ This project implements an **automated calibration pipeline** that:
 
 ```
 ┌─────────────────┐     ┌──────────────┐     ┌─────────────────┐
-│   SciPy         │────▶│  SU2 RANS    │────▶│  Loss Function  │
-│   Optimizer     │◀────│  Solver      │◀────│  (RMSE vs DNS)  │
-│  (Brent's)      │     │  (Mach 14)   │     │                 │
+│   SciPy         │────>│  SU2 RANS    │────>│  Loss Function  │
+│   Optimizer     │     │  Solver      │     │  (RMSE vs DNS)  │
+│  (Brent's)      │<────│  (Mach 14)   │<────│                 │
 └─────────────────┘     └──────────────┘     └─────────────────┘
 ```
 

@@ -75,3 +75,4 @@ run_*.cfg
 !data/DNS Dataset.csv
 !README.md
 !requirements.txt
+src/generate_ramp.py

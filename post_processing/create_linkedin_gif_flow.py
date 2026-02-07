@@ -13,13 +13,13 @@ OUTPUT_GIF = "optimization_final_flow.gif"
 RESULTS_ROOT = Path("../results").resolve()
 
 def _get_run_dir(root):
-    """Use flat results/ if legacy; else latest run folder (geometry_niter_date)."""
+    """Prefer latest run folder (geometry_Niter_date); else flat results/ if legacy."""
+    run_dirs = [d for d in root.iterdir() if d.is_dir() and "iter" in d.name]
+    if run_dirs:
+        return max(run_dirs, key=lambda d: d.stat().st_mtime)
     if (root / "optimization_log.csv").exists():
         return root
-    run_dirs = [d for d in root.iterdir() if d.is_dir() and "iter" in d.name]
-    if not run_dirs:
-        return root
-    return max(run_dirs, key=lambda d: d.stat().st_mtime)
+    return root
 
 RESULTS_DIR = _get_run_dir(RESULTS_ROOT)
 LOG_FILE = RESULTS_DIR / "optimization_log.csv"

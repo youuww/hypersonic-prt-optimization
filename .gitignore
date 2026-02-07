@@ -70,10 +70,17 @@ CONTEXT.md
 *.log
 run_*.cfg
 
+# ----- WIP / Not ready for public (remove when reviewed) -----
+post_processing/plot_velocity_do_no_harm.py
+post_processing/velocity_do_no_harm.png
+post_processing/velocity_do_no_harm.pdf
+
+# ----- Ignore: Not ready for public -----
+src/generate_ramp.py
+
 # ----- Keep these (override above) -----
 !config/*.cfg
 !config/*.su2
 !data/DNS Dataset.csv
 !README.md
 !requirements.txt
-src/generate_ramp.py

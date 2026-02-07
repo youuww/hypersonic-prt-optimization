@@ -88,9 +88,7 @@ def objective_function(pr_t):
 # ==========================================
 if __name__ == "__main__":
     print("=== 🚀 Starting SciML Optimization Loop ===")
-    
-    runner = SU2Interface(num_cores=4)
-    # Per-run folder: all Pr_* and summary files go here; renamed at end to geometry_niter_date
+    # Use global runner so objective_function writes into the same run_dir
     ts = datetime.now().strftime("%y%m%d_%H%M")
     run_dir = runner.RESULTS_DIR / f"run_{ts}"
     run_dir.mkdir(parents=True, exist_ok=True)

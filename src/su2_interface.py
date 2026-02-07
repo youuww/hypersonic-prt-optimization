@@ -185,7 +185,7 @@ class SU2Interface:
     def organize_files(self, pr_val):
         """Moves simulation output files into a dedicated folders."""
         # 1. Define folder name (e.g., ../results/Pr_0.5)
-        folder_name = RESULTS_DIR / f"Pr_{pr_val}"
+        folder_name = self.RESULTS_DIR / f"Pr_{pr_val}"
         
         if not folder_name.exists():
             print(f"   [Org] Created folder: {folder_name}")

@@ -28,7 +28,8 @@ surface_*.vtu
 
 # ----- Results Directories -----
 # These contain generated data - too large for git
-results/
+results/*
+!results/README.txt
 My_Results/
 
 # ----- Windows/WSL Metadata -----

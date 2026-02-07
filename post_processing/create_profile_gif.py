@@ -9,10 +9,21 @@ import re
 
 # --- CONFIGURATION ---
 plt.style.use('dark_background')
-RESULTS_DIR = Path("../results")
+RESULTS_ROOT = Path("../results").resolve()
 DATA_DIR = Path("../data")
 DNS_FILE = DATA_DIR / "DNS Dataset.csv"
 OUTPUT_GIF = "optimization_profile_physics.gif"
+
+def _get_run_dir(root):
+    """Use flat results/ if legacy; else latest run folder (geometry_niter_date)."""
+    if (root / "optimization_log.csv").exists():
+        return root
+    run_dirs = [d for d in root.iterdir() if d.is_dir() and "iter" in d.name]
+    if not run_dirs:
+        return root
+    return max(run_dirs, key=lambda d: d.stat().st_mtime)
+
+RESULTS_DIR = _get_run_dir(RESULTS_ROOT)
 LOG_FILE = RESULTS_DIR / "optimization_log.csv"
 X_STATION = 1.5
 X_TOL = 0.01  # Increased slightly for stability

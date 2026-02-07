@@ -6,6 +6,7 @@ from su2_interface import SU2Interface
 from pathlib import Path
 import time
 import shutil
+from datetime import datetime
 
 # ==========================================
 #              CONFIGURATION
@@ -89,6 +90,12 @@ if __name__ == "__main__":
     print("=== 🚀 Starting SciML Optimization Loop ===")
     
     runner = SU2Interface(num_cores=4)
+    # Per-run folder: all Pr_* and summary files go here; renamed at end to geometry_niter_date
+    ts = datetime.now().strftime("%y%m%d_%H%M")
+    run_dir = runner.RESULTS_DIR / f"run_{ts}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    runner.RESULTS_DIR = run_dir
+    print(f"[Results] Run folder: {run_dir} (will be renamed at end)\n")
     
     # method='bounded': Brent's Method
     res = minimize_scalar(
@@ -168,13 +175,28 @@ if __name__ == "__main__":
     runner.organize_files(optimal_pr_str) # Make Dir
     runner.cleanup(optimal_pr_str)
     
-    # --- Move Summary Files to Results Folder ---
-    print(f"\n>>> Archiving summary files to: {runner.RESULTS_DIR}")
+    # --- Move Summary Files to [Results \ Run Folder] ---
+    print(f"\n>>> Archiving summary files to run folder...")
     for f_name in [LOG_FILE, "optimization_convergence.png"]:
         src = Path(f_name)
         dst = runner.RESULTS_DIR / f_name
         if src.exists():
             shutil.move(str(src), str(dst))
             print(f"       -> Moved: {f_name}")
+
+    # --- Rename run folder to: geometry_niter_date (e.g. flatplate_M14_5iter_260207) ---
+    n_iter = len(history)
+    geometry = runner.base_config.stem  # e.g. turb_SA_flatplate_M14Tw018
+    date_short = datetime.now().strftime("%y%m%d")
+    final_name = f"{geometry}_{n_iter}iter_{date_short}"
+    run_dir = runner.RESULTS_DIR
+    results_root = run_dir.parent
+    final_path = results_root / final_name
+    if final_path.exists():
+        # avoid overwrite: append time
+        final_name = f"{geometry}_{n_iter}iter_{date_short}_{datetime.now().strftime('%H%M')}"
+        final_path = results_root / final_name
+    run_dir.rename(final_path)
+    print(f"\n>>> Results saved under: {final_path}")
 
     print("\n=== 🏁 Mission Accomplished. ===")

@@ -15,10 +15,10 @@ Automated calibration of RANS turbulence models for hypersonic cold-wall boundar
 
 ## Key Results
 
-| Metric | Baseline | Optimized | Improvement |
-|--------|----------|-----------|-------------|
-| Temperature RMSE | 0.387 | 0.286 | **-26%** |
-| Turbulent Prandtl Number | 0.9 | 0.566 | Calibrated |
+| Metric | Baseline (Pr_t=0.9) | Calibrated (Pr_t=0.566) | Improvement |
+|--------|----------------------|--------------------------|-------------|
+| Temperature RMSE | 0.739 | 0.286 | **-61.3%** |
+| Turbulent Prandtl Number | 0.9 (SA default) | 0.566 (optimized) | Data-driven calibration |
 
 <p align="center">
   <img src="post_processing/optimization_profile_physics.gif" alt="T-U Profile Evolution" width="500">

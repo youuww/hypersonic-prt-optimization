@@ -35,12 +35,13 @@ optimal_pr_str = f"{optimal_pr:.4f}"
 
 print(f">>> Auto-detected Optimal Pr_t: {optimal_pr_str} (RMSE: {df_log.loc[best_row_idx, 'RMSE']:.5f})")
 
-DATA_FILE = RESULTS_DIR / f"Pr_{optimal_pr_str}" / "flow.dat"  # Optimized SU2 Result
+DATA_FILE_BASE = RESULTS_DIR / "Pr_0.9000" / "flow.dat"
+DATA_FILE_OPT = RESULTS_DIR / f"Pr_{optimal_pr_str}" / "flow.dat"  # Optimized SU2 Result
 DNS_FILE = SCRIPT_DIR.parent / "data" / "DNS Dataset.csv"      # Benchmark Data
 
 # Safety Check - Data
-if not DATA_FILE.exists():
-    raise FileNotFoundError(f"CRITICAL: Could not find result file at {DATA_FILE}")
+if not DATA_FILE_OPT.exists():
+    raise FileNotFoundError(f"CRITICAL: Could not find result file at {DATA_FILE_OPT}")
 
 # Physics Constants (Mach 14 Case)
 U_INF = 1882.0
@@ -59,13 +60,16 @@ plt.rcParams.update({
     "font.family": "serif",
     "font.serif": ["Times New Roman", "Times", "DejaVu Serif"],
     "font.size": 10,
+    "lines.linewidth": 1.5,
     "axes.labelsize": 10,
     "legend.fontsize": 9,
     "xtick.labelsize": 9,
     "ytick.labelsize": 9,
-    "lines.linewidth": 1.5,
-    "figure.figsize": (3.5, 2.5),   # Single-column figure size (3.5 inch)
-    "figure.dpi": 300,
+    "xtick.direction": "in",  # Ticks pointing inside
+    "ytick.direction": "in",
+
+    "figure.figsize": (3.5, 2.5),  # Single-column figure size (3.5 inch)
+    "figure.dpi": 600,
     "mathtext.fontset": "stix",  # LaTeX-like math rendering
     "savefig.bbox": "tight" # Cutting white margins
 })
@@ -124,21 +128,27 @@ def load_robust_data(dat_file):
 # ==========================================
 def plot_aiaa_style():
     # 1. Load Datasets
-    su2_df = load_robust_data(DATA_FILE)
+    su2_base = load_robust_data(DATA_FILE_BASE)
+    su2_opt = load_robust_data(DATA_FILE_OPT)
     dns_df = pd.read_csv(DNS_FILE)
     
-    # 2. Extract Profile at Validation Station (x = 1.5m)
-    # Using a small tolerance window to capture the slice
-    slice_df = su2_df[ (su2_df['x'] > 1.495) & (su2_df['x'] < 1.505) ].copy()
+    # 2. Extract Profiles (x = 1.5m)
+    # Using a tolerance window to capture the slice
+    slice_base = su2_base[ (su2_base['x'] > 1.495) & (su2_base['x'] < 1.505) ].copy()
+    slice_opt = su2_opt[ (su2_opt['x'] > 1.495) & (su2_opt['x'] < 1.505) ].copy()
     
     # 3. Normalize Variables
     # Velocity normalized by Freestream Velocity (u_inf)
     # Temperature normalized by Freestream Temperature (T_inf)
-    slice_df['u_norm'] = slice_df['u'] / U_INF
-    slice_df['t_norm'] = slice_df['T'] / T_INF
+    slice_base['u_norm'] = slice_base['u'] / U_INF
+    slice_base['t_norm'] = slice_base['T'] / T_INF
+    
+    slice_opt['u_norm'] = slice_opt['u'] / U_INF
+    slice_opt['t_norm'] = slice_opt['T'] / T_INF
     
     # Sort by velocity for clean plotting lines
-    slice_df = slice_df.sort_values(by='u_norm')
+    slice_base = slice_base.sort_values(by='u_norm')
+    slice_opt = slice_opt.sort_values(by='u_norm')
     
     # 4. Generate Plot
     fig, ax = plt.subplots()
@@ -149,9 +159,15 @@ def plot_aiaa_style():
             label='DNS', 
             markersize=5, markerfacecolor='white', markeredgewidth=1.2, zorder=5)
     
+    # --- B. Baseline (The Failure) ---
+    # Style: Red dashed line
+    ax.plot(slice_base['u_norm'], slice_base['t_norm'], '--r', linewidth=1.5,
+            label='Standard RANS ($Pr_t=0.9$)', 
+            zorder=4)
+    
     # --- Plot Calibrated RANS ---
     # Style: Solid blue line
-    ax.plot(slice_df['u_norm'], slice_df['t_norm'], '-b', 
+    ax.plot(slice_opt['u_norm'], slice_opt['t_norm'], '-b', 
             label=f'Calibrated RANS ($Pr_t = {PR_T:.3f}$)', 
             zorder=10) 
     
@@ -159,9 +175,9 @@ def plot_aiaa_style():
     ax.set_xlabel(r'$u / u_{\infty}$')
     ax.set_ylabel(r'$T / T_{\infty}$')
     
-    # Set Axis Limits for cleaner view
+    # Set Axis Limits
     ax.set_xlim([0, 1.02])
-    ax.set_ylim([0, 11.5]) 
+    ax.set_ylim([0, 13]) 
     
     # Add subtle grid
     ax.grid(True, which='major', linestyle='--', alpha=0.4)

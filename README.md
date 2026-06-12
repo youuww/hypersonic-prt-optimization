@@ -1,6 +1,6 @@
 # Hypersonic Turbulent Prandtl Number Optimization
 
-![Python](https://img.shields.io/badge/Python-3.8+-blue?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python&logoColor=white)
 ![SU2](https://img.shields.io/badge/SU2-CFD-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![MPI](https://img.shields.io/badge/MPI-Parallel-purple)
@@ -32,7 +32,9 @@ Standard RANS turbulence models assume a constant turbulent Prandtl number (Pr_t
 
 ## The Solution
 
-This project implements an **automated calibration pipeline** that:
+This project implements an **automated calibration pipeline** with two execution modes:
+
+**Mode 1 — Single-condition optimization (validated at Mach 14)**
 1. Wraps the SU2 CFD solver in a Python interface
 2. Runs parametric simulations automatically
 3. Computes loss against DNS ground truth
@@ -44,6 +46,23 @@ This project implements an **automated calibration pipeline** that:
 │   Optimizer     │     │  Solver      │     │  (RMSE vs DNS)  │
 │  (Brent's)      │<────│  (Mach 14)   │<────│                 │
 └─────────────────┘     └──────────────┘     └─────────────────┘
+```
+
+**Mode 2 — GP surrogate + active learning (scaffold, not yet validated)**
+
+Extends Mode 1 to multiple flow conditions using a Gaussian Process (BoTorch) that maps `[Mach, Tw/Taw, pressure-gradient angle]` → optimal Pr_t, with UCB acquisition to decide where to run new SU2 simulations. Code is in place but has **not been run end-to-end yet**.
+
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│ FlowCondition│────>│  GP Surrogate│────>│  UCB         │
+│ (case_config)│     │  (BoTorch)   │     │  Acquisition │
+└──────────────┘     └──────────────┘     └──────┬───────┘
+                                                  │ high uncertainty
+                                                  v
+                                          ┌──────────────┐
+                                          │ SU2 + Brent  │
+                                          │ (inner loop) │
+                                          └──────────────┘
 ```
 
 ---
@@ -64,9 +83,10 @@ This project implements an **automated calibration pipeline** that:
 
 - **CFD Solver:** [SU2](https://su2code.github.io/) (open-source, MPI-parallel)
 - **Optimization:** SciPy (Brent's bounded method)
+- **Surrogate Model:** PyTorch + GPyTorch + BoTorch (GP, active learning)
 - **Data Processing:** Pandas, NumPy
 - **Visualization:** Matplotlib (AIAA publication style)
-- **Environment:** Linux/WSL2, Python 3.8+
+- **Environment:** Linux/WSL2, Python 3.9+
 
 ---
 
@@ -76,10 +96,17 @@ This project implements an **automated calibration pipeline** that:
 # Install dependencies
 pip install -r requirements.txt
 
-# Run optimization (requires SU2 with MPI)
+# Mode 1: Single-condition optimization (validated)
 cd src
 python run_optimization.py
+
+# Mode 2: Active learning (scaffold — not yet validated)
+python run_active_learning.py --dry-run    # GP logic only, no SU2
+python run_active_learning.py --budget 10    # full loop (requires SU2 + MPI)
+python run_active_learning.py --resume       # resume from checkpoints/
 ```
+
+SU2 must be on PATH. Parallel runs use `mpirun -n 4 SU2_CFD`.
 
 ---
 
@@ -87,12 +114,17 @@ python run_optimization.py
 
 ```
 ├── src/
-│   ├── run_optimization.py    # Main optimization loop
-│   ├── su2_interface.py       # SU2 wrapper class
-│   └── generate_ramp.py       # Mesh generator for future work
-├── config/                    # SU2 configuration files
-├── data/                      # DNS validation dataset
-└── post_processing/           # Visualization scripts
+│   ├── run_optimization.py       # Mode 1: Brent optimization (validated)
+│   ├── run_active_learning.py    # Mode 2: GP + active learning (untested)
+│   ├── case_config.py            # FlowCondition dataclass + feature vector
+│   ├── surrogate.py              # GP surrogate (BoTorch)
+│   ├── active_loop.py            # UCB acquisition loop
+│   ├── su2_interface.py          # SU2 wrapper (accepts FlowCondition)
+│   └── generate_ramp.py          # Mesh generator (future work)
+├── checkpoints/                  # GP model + AL log (created at runtime)
+├── config/                       # SU2 configuration files
+├── data/                         # DNS validation dataset
+└── post_processing/              # Visualization scripts
 ```
 
 ---

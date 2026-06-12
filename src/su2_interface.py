@@ -5,6 +5,9 @@ import os
 import re
 import shutil
 from pathlib import Path
+from typing import Optional
+
+from case_config import FlowCondition
 
 # --- Force non-interactive backend for WSL ---
 import matplotlib
@@ -18,31 +21,70 @@ DNS_FILE = SCRIPT_DIR.parent / "data" / "DNS Dataset.csv"
 RESULTS_DIR = SCRIPT_DIR.parent / "results"
 
 class SU2Interface:
-    def __init__(self, base_config = BASE_CFG, dns_csv = DNS_FILE, num_cores=4):
+    def __init__(
+        self,
+        flow: Optional[FlowCondition] = None,
+        base_config: Path = BASE_CFG,
+        dns_csv: Optional[Path] = DNS_FILE,
+        num_cores: int = 4,
+    ):
         self.SCRIPT_DIR = SCRIPT_DIR
         self.base_config = base_config
         self.num_cores = num_cores
         self.RESULTS_DIR = RESULTS_DIR
-        
-        self.dns_data = pd.read_csv(dns_csv)
-        self.dns_u = self.dns_data.iloc[:, 0].values
-        self.dns_t = self.dns_data.iloc[:, 1].values
 
-        # Physics Constants (Defaults for Mach 14 case)
-        self.T_INF = 47.4      # Freestream Temperature [K]
-        self.U_INF = 1882.0    # Freestream Velocity [m/s]
+        # Flow condition — None defaults to Mach 14 (preserves old behavior).
+        # When a custom FlowCondition is passed, generate_config will also
+        # inject Mach, T_inf, P_inf, Re, and Tw into the SU2 config.
+        self._custom_flow = flow is not None
+        self.flow = flow or FlowCondition.mach14_flat_plate()
 
-        # Analysis Location
-        self.X_STATION = 1.5   # Meters
+        # DNS reference data — FlowCondition.dns_data_path takes priority
+        dns_path = self.flow.dns_data_path or dns_csv
+        if dns_path and Path(dns_path).exists():
+            self.dns_data = pd.read_csv(dns_path)
+            self.dns_u = self.dns_data.iloc[:, 0].values
+            self.dns_t = self.dns_data.iloc[:, 1].values
+            self._has_dns = True
+        else:
+            self.dns_u = None
+            self.dns_t = None
+            self._has_dns = False
+
+        # Physics derived from flow condition (replaces old hardcoded values)
+        self.T_INF = self.flow.t_inf
+        self.U_INF = self.flow.u_inf
+
+        # Analysis location (downstream station for profile extraction)
+        self.X_STATION = 1.5   # [m]
         self.X_TOLERANCE = 0.005
 
-        # Simulation Settings
+        # Simulation settings (overridden per-run in generate_config)
         self.ITERATIONS = 51
         self.SAVE_FREQ = 10
 
-    def generate_config(self, pr_t, run_id):
-        """Injects parameters into a temporary config file."""
+    def generate_config(self, pr_t: float, run_id: str) -> Path:
+        """Generates a temporary SU2 config with injected Pr_t and flow conditions.
+
+        When a custom FlowCondition was provided at construction time,
+        all freestream parameters (Mach, T_inf, P_inf, Re, T_wall, mesh)
+        are also injected.  Otherwise only Pr_t and output settings are
+        modified, keeping the template config values intact.
+        """
         new_cfg = SCRIPT_DIR / f"run_{run_id}.cfg"
+
+        # Freestream overrides — applied only for custom FlowConditions.
+        flow_overrides: dict[str, str] = {}
+        if self._custom_flow:
+            flow_overrides = {
+                "MACH_NUMBER":            str(self.flow.mach),
+                "FREESTREAM_TEMPERATURE": str(self.flow.t_inf),
+                "FREESTREAM_PRESSURE":    str(self.flow.p_inf),
+                "REYNOLDS_NUMBER":        str(self.flow.re),
+                "MARKER_ISOTHERMAL":      f"( wall, {self.flow.t_wall:.1f} )",
+                "MESH_FILENAME":          str(self.flow.mesh_file),
+            }
+
         with open(self.base_config, 'r') as f:
             lines = f.readlines()
         
@@ -55,20 +97,28 @@ class SU2Interface:
                     f.write("RESTART_SOL= NO\n")
 
                 elif "OUTPUT_WRT_FREQ" in line:
-                    f.write(f"OUTPUT_WRT_FREQ= {self.SAVE_FREQ}\n") # FREQ
+                    f.write(f"OUTPUT_WRT_FREQ= {self.SAVE_FREQ}\n")
                 elif line.strip().startswith("ITER="):
-                    f.write(f"ITER= {self.ITERATIONS}\n") # ITER
+                    f.write(f"ITER= {self.ITERATIONS}\n")
 
                 elif "OUTPUT_FILES" in line:
-                    f.write("OUTPUT_FILES= (RESTART, PARAVIEW, TECPLOT_ASCII)\n") # FILES
+                    f.write("OUTPUT_FILES= (RESTART, PARAVIEW, TECPLOT_ASCII)\n")
                 elif "VOLUME_FILENAME" in line:
                     f.write("VOLUME_FILENAME= flow\n")
                 elif "CONV_FILENAME" in line:
                     f.write(f"CONV_FILENAME= history\n")
                 elif "RESTART_FILENAME" in line:
                     f.write("RESTART_FILENAME= restart_flow\n")
+
                 else:
-                    f.write(line)
+                    # --- Flow condition injection (custom cases only) ---
+                    # Overrides freestream params only when a non-default
+                    # FlowCondition was passed; run_optimization.py is unaffected.
+                    key = line.split("=")[0].strip()
+                    if key in flow_overrides:
+                        f.write(f"{key}= {flow_overrides[key]}\n")
+                    else:
+                        f.write(line)
         return new_cfg
 
     def run_su2(self, cfg_file):
@@ -128,6 +178,9 @@ class SU2Interface:
 
     def calculate_loss(self, filename_base):
         """Extracts profile at X_STATION and computes RMSE vs DNS."""
+        if not self._has_dns:
+            print("!!! No DNS reference data — cannot compute loss.")
+            return 999.0
         try:
             df = self.load_tecplot_data(filename_base)
             if df is None: return 999.0
@@ -151,7 +204,7 @@ class SU2Interface:
             return 999.0
 
     def plot_results(self, filename_base, pr_val):
-        """Generates and saves the comparison plot"""
+        """Generates T-U profile plot. Overlays DNS data when available."""
         try:
             df = self.load_tecplot_data(filename_base)
             if df is None: return
@@ -165,10 +218,13 @@ class SU2Interface:
             slice_df = slice_df.sort_values(by='u_norm')
 
             plt.figure(figsize=(10, 6), dpi=300)
-            plt.plot(self.dns_u, self.dns_t, 'k.', label='DNS Data', markersize=8)
+            if self._has_dns:
+                plt.plot(self.dns_u, self.dns_t, 'k.', label='DNS Data', markersize=8)
             plt.plot(slice_df['u_norm'], slice_df['t_norm'], 'r-', linewidth=2, label=f'SU2 (Pr_t={pr_val})')
             
-            plt.title(f'Boundary Layer T-U Profile (Mach 14)\nPr_t = {pr_val}, RMSE calculated at x={self.X_STATION}m')
+            label = getattr(self.flow, 'label', f'Mach {self.flow.mach}')
+            plt.title(f'Boundary Layer T-U Profile ({label})\n'
+                      f'Pr_t = {pr_val}, x = {self.X_STATION} m')
             plt.xlabel('u / u_inf')
             plt.ylabel('T / T_inf')
             plt.legend()

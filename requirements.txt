@@ -1,8 +1,14 @@
-# Hypersonic Pr_t Optimization Pipeline
-# Python 3.8+
+# Hypersonic Pr_t Calibration Pipeline
+# Python 3.9+
 
+# --- Core scientific stack ---
 numpy>=1.21.0
 pandas>=1.3.0
 matplotlib>=3.4.0
 scipy>=1.7.0
 Pillow>=8.0.0
+
+# --- ML / Surrogate model (GP + Active Learning) ---
+torch>=2.0.0
+gpytorch>=1.11
+botorch>=0.10.0

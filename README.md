@@ -75,7 +75,7 @@ Extends Mode 1 to multiple flow conditions using a Gaussian Process (BoTorch) th
 | Wall Temperature Ratio (Tw/Taw) | 0.186 |
 | Reynolds Number | 5×10⁶ |
 | Turbulence Model | Spalart-Allmaras |
-| Validation Data | DNS (Murphy & Agarwal, 2025) |
+| Validation Data | DNS (Zhang, Duan & Choudhari, 2018) |
 
 ---
 
@@ -134,7 +134,8 @@ SU2 must be on PATH. Parallel runs use `mpirun -n 4 SU2_CFD`.
 
 ## References
 
-- Murphy, A. R. & Agarwal, R. K. (2025). *Application and Evaluation of the Wray-Agarwal Turbulence Model with Compressibility Corrections in SU2 for RANS Hypersonic Flow Prediction.* AIAA Aviation Forum.
+- Zhang, C., Duan, L. & Choudhari, M. M. (2018). *Direct Numerical Simulation Database for Supersonic and Hypersonic Turbulent Boundary Layers.* AIAA Journal, 56(11). (DNS validation data, via NASA Langley Turbulence Modeling Resource.)
+- Murphy, A. R. & Agarwal, R. K. (2025). *Application and Evaluation of the Wray-Agarwal Turbulence Model with Compressibility Corrections in SU2 for RANS Hypersonic Flow Prediction.* AIAA Aviation Forum. (RANS turbulence-model reference.)
 
 ---
 

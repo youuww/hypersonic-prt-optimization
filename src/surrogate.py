@@ -101,7 +101,16 @@ class PrtSurrogate:
         train_X: Tensor,
         train_Y: Tensor,
         bounds: Optional[Tensor] = None,
+        train_Yvar: Optional[Tensor] = None,
     ) -> None:
+        """
+        train_Yvar : Tensor, shape (n, 1), optional
+            Per-point OBSERVATION VARIANCE (noise^2) in physical Pr_t units.
+            Use this to down-weight less trustworthy data — e.g. the M8
+            case (nitrogen DNS calibrated against an air RANS model) gets
+            a larger variance so the GP "trusts it less".
+            If None, the GP infers a single homoscedastic noise level.
+        """
         if train_X.ndim != 2 or train_X.shape[1] != 3:
             raise ValueError(
                 f"train_X must have shape (n, 3), got {train_X.shape}"
@@ -116,6 +125,10 @@ class PrtSurrogate:
         )
         self._train_X = train_X.to(dtype=torch.float64)
         self._train_Y = train_Y.to(dtype=torch.float64)
+        self._train_Yvar = (
+            train_Yvar.to(dtype=torch.float64)
+            if train_Yvar is not None else None
+        )
 
         self.model: SingleTaskGP = self._build_and_fit()
 
@@ -135,9 +148,13 @@ class PrtSurrogate:
             )
         )
 
+        # When train_Yvar is given, SingleTaskGP uses a FixedNoise
+        # likelihood (per-point noise); otherwise it infers homoscedastic
+        # noise.  Standardize transforms Yvar consistently with Y.
         model = SingleTaskGP(
             train_X=self._train_X,
             train_Y=self._train_Y,
+            train_Yvar=self._train_Yvar,
             covar_module=covar_module,
             input_transform=Normalize(d=3, bounds=self.bounds),
             outcome_transform=Standardize(m=1),
@@ -178,11 +195,20 @@ class PrtSurrogate:
     # ------------------------------------------------------------------ #
     #                     Online update                                    #
     # ------------------------------------------------------------------ #
-    def update(self, X_new: Tensor, Y_new: Tensor) -> None:
+    def update(
+        self,
+        X_new: Tensor,
+        Y_new: Tensor,
+        Yvar_new: Optional[Tensor] = None,
+    ) -> None:
         """Append new observations and retrain the GP from scratch.
 
         For small datasets (< 100 points), full retraining is fast
         and avoids error accumulation from incremental updates.
+
+        Yvar_new : per-point observation variance for the new data.
+            Required if the surrogate was built with fixed noise
+            (train_Yvar); ignored otherwise.
         """
         if X_new.ndim == 1:
             X_new = X_new.unsqueeze(0)
@@ -191,6 +217,23 @@ class PrtSurrogate:
 
         self._train_X = torch.cat([self._train_X, X_new.to(torch.float64)])
         self._train_Y = torch.cat([self._train_Y, Y_new.to(torch.float64)])
+
+        # Keep the noise vector consistent with the data when in
+        # fixed-noise mode.  If no noise is supplied for the new point,
+        # reuse the smallest existing variance (treat it as trustworthy).
+        if self._train_Yvar is not None:
+            if Yvar_new is None:
+                Yvar_new = torch.full(
+                    (X_new.shape[0], 1),
+                    float(self._train_Yvar.min()),
+                    dtype=torch.float64,
+                )
+            if Yvar_new.ndim == 1:
+                Yvar_new = Yvar_new.unsqueeze(0)
+            self._train_Yvar = torch.cat(
+                [self._train_Yvar, Yvar_new.to(torch.float64)]
+            )
+
         self.model = self._build_and_fit()
 
         logger.info(
@@ -209,6 +252,8 @@ class PrtSurrogate:
         torch.save(self._train_X, directory / "train_X.pt")
         torch.save(self._train_Y, directory / "train_Y.pt")
         torch.save(self.bounds, directory / "bounds.pt")
+        if self._train_Yvar is not None:
+            torch.save(self._train_Yvar, directory / "train_Yvar.pt")
 
         meta = {
             "n_train": int(self._train_X.shape[0]),
@@ -226,7 +271,16 @@ class PrtSurrogate:
         train_Y = torch.load(directory / "train_Y.pt", weights_only=True)
         bounds = torch.load(directory / "bounds.pt", weights_only=True)
 
-        surrogate = cls(train_X=train_X, train_Y=train_Y, bounds=bounds)
+        yvar_path = directory / "train_Yvar.pt"
+        train_Yvar = (
+            torch.load(yvar_path, weights_only=True)
+            if yvar_path.exists() else None
+        )
+
+        surrogate = cls(
+            train_X=train_X, train_Y=train_Y,
+            bounds=bounds, train_Yvar=train_Yvar,
+        )
 
         surrogate.model.load_state_dict(
             torch.load(directory / "gp_state.pt", weights_only=True)
@@ -256,11 +310,18 @@ class PrtSurrogate:
     def summary(self) -> str:
         """Human-readable summary of the fitted GP state."""
         ls = self.lengthscales
+        if self._train_Yvar is not None:
+            noise_str = (
+                f"fixed, per-point "
+                f"(min={self._train_Yvar.min():.2e}, "
+                f"max={self._train_Yvar.max():.2e})"
+            )
+        else:
+            noise_str = f"{self.model.likelihood.noise.item():.4e} (inferred)"
         return (
             f"  PrtSurrogate  ({self.n_train} training points)\n"
             f"  Kernel:       Matern-5/2  (ARD)\n"
             f"  Lengthscales: Mach={ls[0]:.3f}  Tw/Taw={ls[1]:.3f}"
             f"  theta_pg={ls[2]:.3f}\n"
-            f"  Noise var:    "
-            f"{self.model.likelihood.noise.item():.4e}"
+            f"  Noise var:    {noise_str}"
         )

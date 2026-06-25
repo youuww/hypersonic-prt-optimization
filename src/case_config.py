@@ -137,6 +137,93 @@ class FlowCondition:
         )
 
     # ------------------------------------------------------------------ #
+    #   DNS database cases (Zhang, Duan & Choudhari, AIAA J. 2018)         #
+    # ------------------------------------------------------------------ #
+    #  Freestream values (Mach, T_inf, Tw/Tr) are taken from Table 1 of
+    #  the paper.  P_inf = rho_inf * R * T_inf (air).
+    #
+    #  METHODOLOGY NOTE (open decision — flagged for review):
+    #  We hold Re = 5e6 fixed across ALL cases (matching the validated
+    #  M14 paper setup) rather than each case's true DNS Reynolds number.
+    #  Rationale: the calibration compares the *normalized* T-u profile,
+    #  which is self-similar (Morkovin), so absolute Re/pressure have
+    #  second-order effect.  Keeping Re fixed lets us reuse the same mesh
+    #  and keeps the existing M14 training point (Pr_t=0.566) consistent.
+
+    @staticmethod
+    def _dns_profile_path(case_tag: str) -> Path:
+        """Resolve the extracted DNS profile CSV for a given case tag."""
+        base = Path(__file__).resolve().parent.parent / "data" / "dns_database"
+        return base / f"{case_tag}_profile.csv"
+
+    @classmethod
+    def dns_M2p5(cls) -> FlowCondition:
+        """M = 2.5, Tw/Tr = 1.0 (near-adiabatic).  Air."""
+        return cls(
+            mach=2.5, t_inf=270.0, p_inf=7749.0, tw_ratio=1.0,
+            re=5_000_000.0, pg_angle=0.0,
+            dns_data_path=cls._dns_profile_path("M2p5"),
+            label="M2.5_Tw1.00",
+        )
+
+    @classmethod
+    def dns_M6Tw025(cls) -> FlowCondition:
+        """M = 5.86, Tw/Tr = 0.25 (strongly cooled).  Air."""
+        return cls(
+            mach=5.86, t_inf=55.0, p_inf=694.5, tw_ratio=0.25,
+            re=5_000_000.0, pg_angle=0.0,
+            dns_data_path=cls._dns_profile_path("M6Tw025"),
+            label="M5.86_Tw0.25",
+        )
+
+    @classmethod
+    def dns_M6Tw076(cls) -> FlowCondition:
+        """M = 5.86, Tw/Tr = 0.76 (mildly cooled).  Air."""
+        return cls(
+            mach=5.86, t_inf=55.0, p_inf=678.7, tw_ratio=0.76,
+            re=5_000_000.0, pg_angle=0.0,
+            dns_data_path=cls._dns_profile_path("M6Tw076"),
+            label="M5.86_Tw0.76",
+        )
+
+    @classmethod
+    def dns_M8Tw048(cls) -> FlowCondition:
+        """M = 7.86, Tw/Tr = 0.48.
+
+        PHYSICS CAVEAT: the DNS working fluid for this case is NITROGEN,
+        not air.  Our SU2 config uses air (R=287, Sutherland for air).
+        The normalized T-u profile is only weakly fluid-dependent, but
+        treat this point with extra scrutiny during validation.
+        """
+        return cls(
+            mach=7.86, t_inf=51.8, p_inf=386.5, tw_ratio=0.48,
+            re=5_000_000.0, pg_angle=0.0,
+            dns_data_path=cls._dns_profile_path("M8Tw048"),
+            label="M7.86_Tw0.48",
+        )
+
+    @classmethod
+    def dns_M14Tw018(cls) -> FlowCondition:
+        """M = 13.68, Tw/Tr = 0.18.  Air.  (DNS-consistent freestream.)"""
+        return cls(
+            mach=13.68, t_inf=47.1, p_inf=229.8, tw_ratio=0.18,
+            re=5_000_000.0, pg_angle=0.0,
+            dns_data_path=cls._dns_profile_path("M14Tw018"),
+            label="M13.68_Tw0.18",
+        )
+
+    @classmethod
+    def all_dns_cases(cls) -> list[FlowCondition]:
+        """Return all five DNS flat-plate cases (Mach 2.5 -> 14)."""
+        return [
+            cls.dns_M2p5(),
+            cls.dns_M6Tw025(),
+            cls.dns_M6Tw076(),
+            cls.dns_M8Tw048(),
+            cls.dns_M14Tw018(),
+        ]
+
+    # ------------------------------------------------------------------ #
     #                       Display helpers                                #
     # ------------------------------------------------------------------ #
     def summary(self) -> str:

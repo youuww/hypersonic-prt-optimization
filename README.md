@@ -48,9 +48,9 @@ This project implements an **automated calibration pipeline** with two execution
 └─────────────────┘     └──────────────┘     └─────────────────┘
 ```
 
-**Mode 2 — GP surrogate + active learning (scaffold, not yet validated)**
+**Mode 2 — GP surrogate + active learning (machinery validated; SU2 calibration pending)**
 
-Extends Mode 1 to multiple flow conditions using a Gaussian Process (BoTorch) that maps `[Mach, Tw/Taw, pressure-gradient angle]` → optimal Pr_t, with UCB acquisition to decide where to run new SU2 simulations. Code is in place but has **not been run end-to-end yet**.
+Extends Mode 1 to multiple flow conditions using a Gaussian Process (BoTorch) that maps `[Mach, Tw/Taw, pressure-gradient angle]` → optimal Pr_t, with UCB acquisition to decide where to run new SU2 simulations. The GP/active-learning machinery is **validated** against a 5-case DNS family (`validate_surrogate.py`), including per-point observation noise to down-weight lower-fidelity data. The remaining step is replacing the DNS placeholder targets with **real RANS-optimal Pr_t** from per-case SU2 calibration.
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
@@ -115,15 +115,18 @@ SU2 must be on PATH. Parallel runs use `mpirun -n 4 SU2_CFD`.
 ```
 ├── src/
 │   ├── run_optimization.py       # Mode 1: Brent optimization (validated)
-│   ├── run_active_learning.py    # Mode 2: GP + active learning (untested)
-│   ├── case_config.py            # FlowCondition dataclass + feature vector
-│   ├── surrogate.py              # GP surrogate (BoTorch)
+│   ├── run_active_learning.py    # Mode 2: GP + active learning orchestrator
+│   ├── case_config.py            # FlowCondition dataclass + 5 DNS case factories
+│   ├── surrogate.py              # GP surrogate (BoTorch, per-point noise support)
 │   ├── active_loop.py            # UCB acquisition loop
 │   ├── su2_interface.py          # SU2 wrapper (accepts FlowCondition)
+│   ├── extract_dns_profiles.py   # NASA TMR .dat -> normalized T-u profile CSVs
+│   ├── validate_surrogate.py     # GP/AL machinery sanity check (placeholder data)
 │   └── generate_ramp.py          # Mesh generator (future work)
-├── checkpoints/                  # GP model + AL log (created at runtime)
+├── checkpoints/                  # GP model + AL log (runtime, gitignored)
 ├── config/                       # SU2 configuration files
-├── data/                         # DNS validation dataset
+├── data/
+│   └── dns_database/             # 5-case DNS family (Mach 2.5-14): raw + profiles
 └── post_processing/              # Visualization scripts
 ```
 

@@ -33,11 +33,11 @@ class SU2Interface:
         self.num_cores = num_cores
         self.RESULTS_DIR = RESULTS_DIR
 
-        # Flow condition — None defaults to Mach 14 (preserves old behavior).
-        # When a custom FlowCondition is passed, generate_config will also
-        # inject Mach, T_inf, P_inf, Re, and Tw into the SU2 config.
-        self._custom_flow = flow is not None
-        self.flow = flow or FlowCondition.mach14_flat_plate()
+        # Flow condition — defaults to the unified DNS-consistent Mach 14 case.
+        # generate_config ALWAYS injects Mach, T_inf, P_inf, Re, T_wall and the
+        # mesh from this FlowCondition, so the SU2 freestream matches it exactly
+        # (in particular, the derived Re drives SU2's freestream density).
+        self.flow = flow or FlowCondition.dns_M14Tw018()
 
         # DNS reference data — FlowCondition.dns_data_path takes priority
         dns_path = self.flow.dns_data_path or dns_csv
@@ -66,24 +66,22 @@ class SU2Interface:
     def generate_config(self, pr_t: float, run_id: str) -> Path:
         """Generates a temporary SU2 config with injected Pr_t and flow conditions.
 
-        When a custom FlowCondition was provided at construction time,
-        all freestream parameters (Mach, T_inf, P_inf, Re, T_wall, mesh)
-        are also injected.  Otherwise only Pr_t and output settings are
-        modified, keeping the template config values intact.
+        All freestream parameters (Mach, T_inf, P_inf, derived Re, T_wall and
+        mesh) are injected from ``self.flow`` so the SU2 freestream is always
+        consistent with the FlowCondition.  ``REYNOLDS_NUMBER`` is the derived
+        ``flow.re`` — SU2 reconstructs the freestream density from it.
         """
         new_cfg = SCRIPT_DIR / f"run_{run_id}.cfg"
 
-        # Freestream overrides — applied only for custom FlowConditions.
-        flow_overrides: dict[str, str] = {}
-        if self._custom_flow:
-            flow_overrides = {
-                "MACH_NUMBER":            str(self.flow.mach),
-                "FREESTREAM_TEMPERATURE": str(self.flow.t_inf),
-                "FREESTREAM_PRESSURE":    str(self.flow.p_inf),
-                "REYNOLDS_NUMBER":        str(self.flow.re),
-                "MARKER_ISOTHERMAL":      f"( wall, {self.flow.t_wall:.1f} )",
-                "MESH_FILENAME":          str(self.flow.mesh_file),
-            }
+        # Freestream overrides — always injected from the FlowCondition.
+        flow_overrides: dict[str, str] = {
+            "MACH_NUMBER":            str(self.flow.mach),
+            "FREESTREAM_TEMPERATURE": str(self.flow.t_inf),
+            "FREESTREAM_PRESSURE":    str(self.flow.p_inf),
+            "REYNOLDS_NUMBER":        str(self.flow.re),
+            "MARKER_ISOTHERMAL":      f"( wall, {self.flow.t_wall:.1f} )",
+            "MESH_FILENAME":          str(self.flow.mesh_file),
+        }
 
         with open(self.base_config, 'r') as f:
             lines = f.readlines()
@@ -111,9 +109,9 @@ class SU2Interface:
                     f.write("RESTART_FILENAME= restart_flow\n")
 
                 else:
-                    # --- Flow condition injection (custom cases only) ---
-                    # Overrides freestream params only when a non-default
-                    # FlowCondition was passed; run_optimization.py is unaffected.
+                    # --- Flow condition injection ---
+                    # Always override freestream params from the FlowCondition
+                    # so the SU2 freestream matches the case exactly.
                     key = line.split("=")[0].strip()
                     if key in flow_overrides:
                         f.write(f"{key}= {flow_overrides[key]}\n")

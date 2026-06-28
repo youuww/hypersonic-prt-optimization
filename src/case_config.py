@@ -14,7 +14,8 @@ Usage:
 
     # Custom case for multi-Mach data generation
     case = FlowCondition(mach=8.0, t_inf=50.0, p_inf=500.0,
-                         tw_ratio=0.3, re=5e6, pg_angle=0.0)
+                         tw_ratio=0.3, pg_angle=0.0)
+    # Re is derived from (mach, t_inf, p_inf): case.re
 """
 
 from __future__ import annotations
@@ -29,6 +30,27 @@ GAMMA: float = 1.4
 R_AIR: float = 287.058      # Specific gas constant [J/(kg*K)]
 PR_LAM: float = 0.72        # Laminar Prandtl number
 
+# ---- Sutherland's law for air (must match the SU2 config) ----
+MU_REF_SUTH: float = 1.716e-5   # Reference dynamic viscosity [Pa*s]
+T_REF_SUTH: float = 273.15      # Reference temperature [K]
+S_SUTH: float = 110.4           # Sutherland constant [K]
+
+# Characteristic length used by SU2's REYNOLDS_LENGTH (matches the config).
+REYNOLDS_LENGTH: float = 1.0    # [m]
+
+
+def sutherland_viscosity(t: float) -> float:
+    """Dynamic viscosity of air via Sutherland's law [Pa*s].
+
+    mu(T) = mu_ref * (T / T_ref)^1.5 * (T_ref + S) / (T + S)
+    """
+    return (
+        MU_REF_SUTH
+        * (t / T_REF_SUTH) ** 1.5
+        * (T_REF_SUTH + S_SUTH)
+        / (t + S_SUTH)
+    )
+
 
 @dataclass
 class FlowCondition:
@@ -40,7 +62,6 @@ class FlowCondition:
     t_inf       : Freestream static temperature [K].
     p_inf       : Freestream static pressure [Pa].
     tw_ratio    : Wall-to-adiabatic-wall temperature ratio (Tw / Taw).
-    re          : Reynolds number (per REYNOLDS_LENGTH in the SU2 config).
     pg_angle    : Pressure-gradient angle [deg].
                   0 for flat plates; ramp deflection angle for compression
                   corners.  Named generically so it extends to future
@@ -49,13 +70,19 @@ class FlowCondition:
     dns_data_path : Optional path to a two-column DNS CSV (u/U_inf, T/T_inf)
                     used for loss computation.
     label       : Human-readable tag for logs and plots.
+
+    Note
+    ----
+    The Reynolds number is NOT stored.  It is a derived property
+    (``re``) computed from ``(mach, t_inf, p_inf)`` together with
+    ``rho_inf`` (ideal gas) and ``mu_inf`` (Sutherland), so it is
+    always physically consistent with the freestream state.
     """
 
     mach: float
     t_inf: float
     p_inf: float
     tw_ratio: float
-    re: float
     pg_angle: float = 0.0
     mesh_file: str = "mesh_flatplate_turb_545x385.su2"
     dns_data_path: Optional[Path] = None
@@ -92,6 +119,27 @@ class FlowCondition:
         return self.mach * self.a_inf
 
     @property
+    def rho_inf(self) -> float:
+        """Freestream density [kg/m^3] from the ideal gas law: rho = P / (R*T)."""
+        return self.p_inf / (R_AIR * self.t_inf)
+
+    @property
+    def mu_inf(self) -> float:
+        """Freestream dynamic viscosity [Pa*s] via Sutherland's law."""
+        return sutherland_viscosity(self.t_inf)
+
+    @property
+    def re(self) -> float:
+        """Reynolds number (derived), per REYNOLDS_LENGTH.
+
+        Re = rho_inf * U_inf * REYNOLDS_LENGTH / mu_inf
+
+        Derived from (mach, t_inf, p_inf) so it is always consistent with
+        the DNS freestream state, instead of a hardcoded constant.
+        """
+        return self.rho_inf * self.u_inf * REYNOLDS_LENGTH / self.mu_inf
+
+    @property
     def recovery_factor(self) -> float:
         """Turbulent recovery factor  r = Pr_lam^(1/3)  (~ 0.896 for air)."""
         return PR_LAM ** (1.0 / 3.0)
@@ -120,21 +168,13 @@ class FlowCondition:
     # ------------------------------------------------------------------ #
     @classmethod
     def mach14_flat_plate(cls) -> FlowCondition:
-        """M = 13.6, Tw/Taw ~ 0.186  (Zhang, Duan & Choudhari, 2018).
+        """Deprecated alias for :meth:`dns_M14Tw018` (single M14 source of truth).
 
-        This is the baseline case validated in the AIAA paper.
-        Freestream: T_inf = 47.4 K, P_inf = 1122 Pa, Re = 5e6.
+        Kept for backward compatibility with older scripts.  The unified M14
+        baseline uses the DNS-consistent freestream (T_inf = 47.1 K,
+        P_inf = 229.8 Pa) and a derived Reynolds number.
         """
-        return cls(
-            mach=13.6,
-            t_inf=47.4,
-            p_inf=1122.0,
-            tw_ratio=0.186,
-            re=5_000_000.0,
-            pg_angle=0.0,
-            mesh_file="mesh_flatplate_turb_545x385.su2",
-            label="M13.6_Flat_Plate",
-        )
+        return cls.dns_M14Tw018()
 
     # ------------------------------------------------------------------ #
     #   DNS database cases (Zhang, Duan & Choudhari, AIAA J. 2018)         #
@@ -142,13 +182,20 @@ class FlowCondition:
     #  Freestream values (Mach, T_inf, Tw/Tr) are taken from Table 1 of
     #  the paper.  P_inf = rho_inf * R * T_inf (air).
     #
-    #  METHODOLOGY NOTE (open decision — flagged for review):
-    #  We hold Re = 5e6 fixed across ALL cases (matching the validated
-    #  M14 paper setup) rather than each case's true DNS Reynolds number.
-    #  Rationale: the calibration compares the *normalized* T-u profile,
-    #  which is self-similar (Morkovin), so absolute Re/pressure have
-    #  second-order effect.  Keeping Re fixed lets us reuse the same mesh
-    #  and keeps the existing M14 training point (Pr_t=0.566) consistent.
+    #  METHODOLOGY NOTE — derived-Re convention:
+    #  The Reynolds number is NOT hardcoded.  It is derived per case from
+    #  (mach, t_inf, p_inf) via the `re` property
+    #  (Re = rho_inf * U_inf * REYNOLDS_LENGTH / mu_inf), so each case's
+    #  freestream is internally consistent and matches its DNS state.
+    #  SU2 reconstructs the freestream density from REYNOLDS_NUMBER, so
+    #  injecting this derived Re makes SU2 reproduce the DNS freestream.
+    #
+    #  Why the normalized comparison is still robust across Re:
+    #  the calibration compares the *normalized* T-u profile, which is
+    #  self-similar via the Crocco-Busemann relation / Strong Reynolds
+    #  Analogy (SRA) — T/T_inf is a function of u/U_inf that is only
+    #  weakly Re-dependent.  (This is a stronger statement than Morkovin's
+    #  hypothesis, which concerns compressibility scaling of turbulence.)
 
     @staticmethod
     def _dns_profile_path(case_tag: str) -> Path:
@@ -161,7 +208,7 @@ class FlowCondition:
         """M = 2.5, Tw/Tr = 1.0 (near-adiabatic).  Air."""
         return cls(
             mach=2.5, t_inf=270.0, p_inf=7749.0, tw_ratio=1.0,
-            re=5_000_000.0, pg_angle=0.0,
+            pg_angle=0.0,
             dns_data_path=cls._dns_profile_path("M2p5"),
             label="M2.5_Tw1.00",
         )
@@ -171,7 +218,7 @@ class FlowCondition:
         """M = 5.86, Tw/Tr = 0.25 (strongly cooled).  Air."""
         return cls(
             mach=5.86, t_inf=55.0, p_inf=694.5, tw_ratio=0.25,
-            re=5_000_000.0, pg_angle=0.0,
+            pg_angle=0.0,
             dns_data_path=cls._dns_profile_path("M6Tw025"),
             label="M5.86_Tw0.25",
         )
@@ -181,7 +228,7 @@ class FlowCondition:
         """M = 5.86, Tw/Tr = 0.76 (mildly cooled).  Air."""
         return cls(
             mach=5.86, t_inf=55.0, p_inf=678.7, tw_ratio=0.76,
-            re=5_000_000.0, pg_angle=0.0,
+            pg_angle=0.0,
             dns_data_path=cls._dns_profile_path("M6Tw076"),
             label="M5.86_Tw0.76",
         )
@@ -197,7 +244,7 @@ class FlowCondition:
         """
         return cls(
             mach=7.86, t_inf=51.8, p_inf=386.5, tw_ratio=0.48,
-            re=5_000_000.0, pg_angle=0.0,
+            pg_angle=0.0,
             dns_data_path=cls._dns_profile_path("M8Tw048"),
             label="M7.86_Tw0.48",
         )
@@ -207,7 +254,7 @@ class FlowCondition:
         """M = 13.68, Tw/Tr = 0.18.  Air.  (DNS-consistent freestream.)"""
         return cls(
             mach=13.68, t_inf=47.1, p_inf=229.8, tw_ratio=0.18,
-            re=5_000_000.0, pg_angle=0.0,
+            pg_angle=0.0,
             dns_data_path=cls._dns_profile_path("M14Tw018"),
             label="M13.68_Tw0.18",
         )

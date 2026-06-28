@@ -96,19 +96,19 @@ def run_cfd_at_point(x_candidate: Tensor) -> tuple[float, float]:
         mach, tw_ratio, pg_angle,
     )
 
-    # Build flow condition for this point
+    # Build flow condition for this point. Re is derived from (mach, t_inf,
+    # p_inf) inside FlowCondition, so it stays consistent with the freestream.
     flow = FlowCondition(
         mach=mach,
         t_inf=47.4,       # TODO: parameterize per altitude / test matrix
         p_inf=1122.0,      # TODO: parameterize
         tw_ratio=tw_ratio,
-        re=5_000_000.0,
         pg_angle=pg_angle,
     )
     logger.info("Flow condition:\n%s", flow.summary())
 
     runner = SU2Interface(flow=flow, num_cores=4)
-    runner.ITERATIONS = 15000   # production iteration count
+    runner.ITERATIONS = 30000   # production iteration count
 
     best_prt = None
     best_rmse = 999.0

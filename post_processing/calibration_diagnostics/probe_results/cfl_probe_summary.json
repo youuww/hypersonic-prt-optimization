@@ -1,0 +1,43 @@
+{
+  "case": "M14Tw018 (Pr_t=0.9, derived Re=1.07e7)",
+  "n_iter": 3000,
+  "cores": 4,
+  "window": 1000,
+  "results": [
+    {
+      "cfl_max": 50.0,
+      "n_iter": 2999,
+      "stable": true,
+      "rms_rho_final": -5.484996508,
+      "rms_rhoE_final": 0.151039788,
+      "energy_slope_dec_per_1k": -0.3376367403932391,
+      "density_slope_dec_per_1k": -0.19436486190831398,
+      "hf_final": 17973.59569,
+      "hf_drift_final_window": 2.355393702527422
+    },
+    {
+      "cfl_max": 150.0,
+      "n_iter": 2999,
+      "stable": true,
+      "rms_rho_final": -5.921911823,
+      "rms_rhoE_final": -0.3733084952,
+      "energy_slope_dec_per_1k": -0.08225901615071839,
+      "density_slope_dec_per_1k": -0.08095316621203397,
+      "hf_final": 2716.30309,
+      "hf_drift_final_window": 0.6269481451718261
+    },
+    {
+      "cfl_max": 250.0,
+      "n_iter": 2999,
+      "stable": true,
+      "rms_rho_final": -5.962369667,
+      "rms_rhoE_final": -0.4031711732,
+      "energy_slope_dec_per_1k": -0.09980443672512469,
+      "density_slope_dec_per_1k": -0.0748715862889967,
+      "hf_final": 4085.519314,
+      "hf_drift_final_window": 0.5594368904750698
+    }
+  ],
+  "chosen_cfl_max": 250.0,
+  "note": "Highest stable CFL with negative energy slope."
+}

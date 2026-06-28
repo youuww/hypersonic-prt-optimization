@@ -3,7 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize_scalar
 from su2_interface import SU2Interface 
+from case_config import FlowCondition
 from pathlib import Path
+import argparse
 import time
 import shutil
 from datetime import datetime
@@ -11,15 +13,29 @@ from datetime import datetime
 # ==========================================
 #              CONFIGURATION
 # ==========================================
-BOUNDS = (0.5, 0.95) # Bounding Pr_t
+# Pr_t search bounds. Widened from the old (0.5, 0.95) to (0.3, 1.2) so the
+# optimizer is not clipped for low-Mach cases whose optimum sits near ~0.9.
+BOUNDS = (0.3, 1.2)
 TOLERANCE = 1e-3
-MAX_ITER = 5
+MAX_ITER = 8
 LOG_FILE = "optimization_log.csv" # Log File - Csv
+
+# Maps a --case name to its FlowCondition factory. Default is the unified
+# DNS-consistent Mach 14 baseline (M14Tw018).
+CASE_FACTORIES = {
+    "M2p5":     FlowCondition.dns_M2p5,
+    "M6Tw025":  FlowCondition.dns_M6Tw025,
+    "M6Tw076":  FlowCondition.dns_M6Tw076,
+    "M8Tw048":  FlowCondition.dns_M8Tw048,
+    "M14Tw018": FlowCondition.dns_M14Tw018,
+}
 
 # ==========================================
 #              GLOBAL OBJECTS
 # ==========================================
-runner = SU2Interface(num_cores=4)
+# The runner is assigned in the __main__ block once CLI args are known.
+# objective_function reads this module-level global at call time.
+runner = None
 
 iteration = 0
 history = []
@@ -87,7 +103,34 @@ def objective_function(pr_t):
 #              MAIN EXECUTION
 # ==========================================
 if __name__ == "__main__":
-    print("=== 🚀 Starting SciML Optimization Loop ===")
+    # ---------------- CLI ----------------
+    parser = argparse.ArgumentParser(
+        description="Calibrate optimal Pr_t for one flow case via Brent's method."
+    )
+    parser.add_argument(
+        "--case", choices=sorted(CASE_FACTORIES.keys()), default="M14Tw018",
+        help="DNS case to calibrate (default: M14Tw018, the unified Mach 14 baseline).",
+    )
+    parser.add_argument(
+        "--iter", type=int, default=15000,
+        help="SU2 inner iterations per run (use ~3000 for a quick smoke test).",
+    )
+    parser.add_argument(
+        "--cores", type=int, default=4,
+        help="MPI cores for SU2 (lower this to reduce machine load).",
+    )
+    args = parser.parse_args()
+
+    # ---------------- Build the runner for the chosen case ----------------
+    flow = CASE_FACTORIES[args.case]()
+    runner = SU2Interface(flow=flow, num_cores=args.cores)
+    print(f"=== 🚀 Calibrating case: {args.case} ===")
+    print(flow.summary())
+
+    runner.ITERATIONS = args.iter
+    print(f"[Config] SU2 iterations={args.iter} | cores={args.cores} | "
+          f"Pr_t bounds={BOUNDS}\n")
+
     # Use global runner so objective_function writes into the same run_dir
     ts = datetime.now().strftime("%y%m%d_%H%M")
     run_dir = runner.RESULTS_DIR / f"run_{ts}"

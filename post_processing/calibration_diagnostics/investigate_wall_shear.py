@@ -194,7 +194,7 @@ def main() -> None:
     ax.set_xlabel(r"$x$ [m]")
     ax.set_ylabel(r"$C_f$")
     ax.set_ylim(1e-5, 1e-2)
-    ax.legend(loc="upper right", frameon=True, fancybox=False, edgecolor="black")
+    ax.legend(loc="lower left", frameon=True, fancybox=False, edgecolor="black")
     ax.grid(True, which="both", linestyle="--", alpha=0.3)
     _save(fig, "diag_cf_vs_x")
 
@@ -220,9 +220,9 @@ def main() -> None:
         ax.plot(pr["u"] / U_INF, pr["y"] * 1e3, "-", color=col, lw=1.3, label=f"x={xs:.2f} m")
     ax.set_xlabel(r"$u / U_\infty$")
     ax.set_ylabel(r"$y$ [mm]")
-    ax.set_ylim(0, 90)
+    ax.set_ylim(0, 50)
     ax.set_xlim(0, 1.02)
-    ax.legend(loc="lower right", frameon=True, fancybox=False, edgecolor="black", ncol=2)
+    ax.legend(loc="upper left", frameon=True, fancybox=False, edgecolor="black", ncol=2)
     ax.grid(True, which="major", linestyle="--", alpha=0.3)
     _save(fig, "diag_profiles_vs_x")
 

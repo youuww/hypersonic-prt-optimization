@@ -42,11 +42,15 @@ heat-flux error might originate in the momentum field rather than in \Prt.
 We built three independent diagnostics and a wall-shear forensic study. The verdict:
 the \Prt{} calibration is physically sound \emph{in the space where it is performed}
 (the self-similar temperature--velocity relation), recovering a value
-($\Prt = 0.566$) close to the DNS-measured boundary-layer average ($0.639$). The
-velocity-space mismatch is real but is explained by a Reynolds-number/flow-state
-difference and the Mach-14 strong viscous-interaction regime, not by a turbulence-model
-failure. The chief actionable issue is incomplete energy-equation convergence in the
-stored baseline run.
+($\Prt = 0.566$) close to the DNS-measured boundary-layer average ($0.639$). With a
+corrected, DNS-consistent baseline (freestream Reynolds number \emph{derived} from the
+DNS state rather than an ad-hoc fixed value), the velocity-space discrepancy that
+triggered the concern is largely resolved: in wall units the RANS momentum field now
+collapses onto the DNS/log-law (friction velocity $\utau = \SI{63.2}{m/s}$ vs DNS
+$\SI{67.6}{m/s}$). The residual difference is a benign Reynolds-number/flow-state gap
+(the RANS boundary layer is still developing), not a turbulence-model failure. The
+remaining actionable issue is deeper energy-equation convergence in the stored baseline
+run.
 \end{abstract}
 
 % ============================================================
@@ -94,8 +98,9 @@ Velocity RMSE vs DNS   & $\sim 0.22$ & $\sim 0.22$ & unchanged \\
 \section{The Concern and the Key Insight}
 % ============================================================
 \paragraph{The concern.}
-The ``Do No Harm'' plot ($u/U_\infty$ vs $y/\delta$) shows RANS and DNS velocity
-profiles that do \emph{not} overlap. If the momentum field is wrong, then $\nu_t$ is
+The ``Do No Harm'' plot ($u/U_\infty$ vs $y/\delta$), computed from the earlier
+fixed-Re baseline, showed RANS and DNS velocity profiles that did \emph{not} overlap.
+If the momentum field is wrong, then $\nu_t$ is
 wrong, and the wall heat flux would be wrong even with a perfect \Prt{}---making the
 ``optimal'' \Prt{} a sink for momentum error.
 
@@ -117,20 +122,27 @@ station is valid in $T$--$u$ space but \emph{not} in physical $y$ space.
 \section{Three Diagnostics}
 % ============================================================
 All three use data already on disk (no CFD reruns) and are produced by
-\texttt{plot\_calibration\_diagnostics.py}.
+\texttt{plot\_calibration\_diagnostics.py}. Check~1 uses the corrected derived-Re
+baseline; Checks~2--3 use the earlier (1A) calibrated run, with matched-Re
+recalibration deferred to 1B.
 
 % ---------- Check 1 ----------
 \subsection{Check 1 --- Van Driest \texorpdfstring{$u_{vd}^+$ vs $y^+$}{u+ vs y+} (momentum field)}
 If the RANS velocity collapses onto the DNS / log-law in wall units, the momentum field
-is sound. \textbf{Result: it does not.} RANS $\utau \approx \SI{14.7}{m/s}$ vs DNS
-$\SI{67.6}{m/s}$; the RANS profile sits far above the log law.
+is sound. \textbf{Result: with the corrected DNS-consistent baseline, it now largely
+does.} RANS $\utau = \SI{63.2}{m/s}$ vs DNS $\SI{67.6}{m/s}$ (within $\sim 7\%$); the
+RANS profile tracks the log law. The earlier fixed-Re baseline gave
+$\utau \approx \SI{14.7}{m/s}$---a spurious gap traced to an inconsistent freestream
+Reynolds number (Section~\ref{sec:forensics}).
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.62\linewidth]{check1_van_driest_uplus.png}
 \caption{Van Driest transformed velocity in wall units. DNS (hollow circles) follows the
-log law; RANS (red/blue) is too steep because \utau{} is far too low for the velocity
-field at this station. This motivated the forensic study in Section~\ref{sec:forensics}.}
+log law; the corrected-baseline RANS (red dashed, $\Prt=0.9$) now tracks it, with
+$\utau=\SI{63.2}{m/s}$ vs DNS $\SI{67.6}{m/s}$. The calibrated-\Prt{} curve is deferred
+to the matched-Re 1B recalibration. The earlier fixed-Re baseline (not shown) sat far
+above the log law, which motivated the forensic study in Section~\ref{sec:forensics}.}
 \end{figure}
 
 % ---------- Check 2 ----------
@@ -144,8 +156,8 @@ $\Prt=0.9$ error is almost entirely a uniform \emph{level} offset that \Prt{} re
 \toprule
  & raw RMSE & level offset & shape RMSE \\
 \midrule
-Standard ($0.9$)        & 1.213 & $+1.170$ & 0.319 \\
-Calibrated ($0.566$)    & 0.283 & $+0.033$ & 0.281 \\
+Standard ($0.9$)        & 1.279 & $+1.236$ & 0.332 \\
+Calibrated ($0.566$)    & 0.293 & $+0.092$ & 0.278 \\
 \bottomrule
 \end{tabular}
 \caption{Shape-vs-level decomposition of the $T(u)$ mismatch
@@ -178,9 +190,11 @@ the near-wall DNS level; the BL-average is $0.639$.}
 \section{Wall-Shear Forensics}
 \label{sec:forensics}
 % ============================================================
-Because Check 1 failed, we localized the cause with \texttt{investigate\_wall\_shear.py},
-mapping wall and boundary-layer quantities along the entire plate rather than at a single
-station.
+The forensic study (\texttt{investigate\_wall\_shear.py}) maps wall and boundary-layer
+quantities along the entire plate rather than at a single station. Run on the corrected
+derived-Re baseline it confirms a healthy, developing turbulent boundary layer and
+explains the small residual gap to the DNS station; on the earlier fixed-Re baseline it
+had localized the (now-resolved) wall-shear deficit.
 
 \begin{table}[H]
 \centering
@@ -188,35 +202,42 @@ station.
 \toprule
 $x$ [m] & $\delta_{99}$ [mm] & \utau{} [m/s] & $Re_x$ & $Re_\tau$ \\
 \midrule
-0.25 & 15.7 & 26.0 & \num{1.25e6} & 61.6 \\
-0.50 & 29.0 & 21.0 & \num{2.51e6} & 91.7 \\
-1.00 & 55.8 & 17.0 & \num{5.01e6} & 143.2 \\
-1.50 & 82.1 & 14.7 & \num{7.52e6} & 182.5 \\
-1.75 & 96.0 & 13.8 & \num{8.77e6} & 200.3 \\
+0.25 &  7.4 & 79.1 & \num{2.67e6} & 117.5 \\
+0.50 & 12.0 & 71.9 & \num{5.35e6} & 166.9 \\
+1.00 & 20.3 & 66.1 & \num{1.07e7} & 252.6 \\
+1.50 & 27.8 & 63.2 & \num{1.60e7} & 328.5 \\
+1.75 & 31.7 & 62.1 & \num{1.87e7} & 366.2 \\
 \bottomrule
 \end{tabular}
-\caption{Boundary-layer development of the baseline ($\Prt=0.9$) run.
-At the analysis station ($x=\SI{1.5}{m}$) $Re_\tau = 182$, versus DNS $Re_\tau = 646$.}
+\caption{Boundary-layer development of the corrected derived-Re baseline ($\Prt=0.9$).
+At the analysis station ($x=\SI{1.5}{m}$) $Re_\tau = 328$, versus DNS $Re_\tau = 646$.}
 \end{table}
 
 \paragraph{Findings.}
 \begin{itemize}[nosep]
-  \item \textbf{Reynolds / flow-state mismatch.} At $x=\SI{1.5}{m}$, $Re_\tau=182$ vs DNS
-        $646$: a low-Re, still-developing BL compared against a fully-developed one. The
-        fixed $Re=\num{5e6}$ convention means RANS is not at the DNS Reynolds number.
-  \item \textbf{Strong hypersonic viscous interaction.} Wall pressure is \SI{244}{Pa} vs
-        freestream \SI{109}{Pa} ($2.2\times$), and $\delta_{99}=\SI{82}{mm}$ is $\sim 3.5\times$
-        the incompressible turbulent estimate. This is the classic Mach-14
-        strong-interaction regime---\emph{not} a clean zero-pressure-gradient plate
-        (the DNS is ZPG).
+  \item \textbf{Momentum field now sound.} With the freestream Reynolds number derived
+        from the DNS state (unit-$Re=\SI{1.07e7}{}$/m), the wall shear recovers to
+        physical values: $\utau=\SI{63.2}{m/s}$ at $x=\SI{1.5}{m}$ (vs DNS
+        $\SI{67.6}{m/s}$), and $C_f(x=\SI{1.5}{m})=\num{4.5e-4}$ sits above laminar
+        Blasius ($\num{1.7e-4}$) and below the incompressible-turbulent line
+        ($\num{2.1e-3}$)---the expected compressible-turbulent range at Mach 14.
+  \item \textbf{Residual Reynolds / flow-state gap (benign).} At $x=\SI{1.5}{m}$,
+        $Re_\tau=328$ vs DNS $646$: the RANS boundary layer is still developing
+        ($Re_\tau$ grows monotonically from $118$ to $366$ along the plate) and the DNS
+        station sits at a higher $Re_\tau$. This is a flow-state difference, not a model
+        defect, and is much smaller than in the earlier fixed-Re baseline ($Re_\tau=182$).
+  \item \textbf{Near-ZPG, mild viscous interaction.} Wall pressure is \SI{285}{Pa} vs
+        freestream \SI{230}{Pa} ($1.24\times$), and $\delta_{99}=\SI{27.8}{mm}$ is
+        $\sim 1.4\times$ the incompressible turbulent estimate---close to the clean
+        zero-pressure-gradient DNS, far milder than the earlier baseline suggested.
   \item \textbf{No transition / no pathology.} $C_f(x)$ decays monotonically with no
         laminar$\to$turbulent jump; velocity profiles develop smoothly (no separation,
-        no relaminarization). The incompressible $C_f$ reference lines are not fair
-        baselines at Mach 14 (compressibility legitimately lowers $C_f$).
-  \item \textbf{Incomplete convergence (actionable).} After \num{15000} iterations,
-        $\mathrm{rms}[\rho] = -6.1$ but $\mathrm{rms}[\rho E] = -0.70$: the \emph{energy}
-        equation---which governs the temperature field we calibrate on---is barely
-        converged.
+        no relaminarization).
+  \item \textbf{Convergence (actionable).} After \num{15000} iterations,
+        $\mathrm{rms}[\rho] = -7.1$ but $\mathrm{rms}[\rho E] = -1.63$: the \emph{energy}
+        equation---which governs the temperature field we calibrate on---has improved
+        over the earlier run ($-0.70$) but is still the limiting field and warrants a
+        deeper floor.
 \end{itemize}
 
 \begin{figure}[H]
@@ -224,8 +245,9 @@ At the analysis station ($x=\SI{1.5}{m}$) $Re_\tau = 182$, versus DNS $Re_\tau =
 \includegraphics[width=0.48\linewidth]{diag_cf_vs_x.png}\hfill
 \includegraphics[width=0.48\linewidth]{diag_delta_vs_x.png}
 \caption{Left: skin-friction $C_f(x)$ vs incompressible references (monotonic, no
-transition). Right: boundary-layer growth $\delta_{99}(x)$, over-thick relative to
-incompressible turbulent theory (expected for Mach 14).}
+transition; the compressible-turbulent $C_f$ sits between the laminar and
+incompressible-turbulent lines). Right: boundary-layer growth $\delta_{99}(x)$, mildly
+thicker than incompressible turbulent theory (expected for Mach 14).}
 \end{figure}
 
 \begin{figure}[H]
@@ -238,25 +260,43 @@ numerical pathology.}
 % ============================================================
 \section{Verdict}
 % ============================================================
-The velocity-space mismatch is \textbf{real but explained}: it stems from a
-Reynolds-number/flow-state difference and the Mach-14 strong viscous-interaction regime
-(plus secondary incomplete energy convergence), \emph{not} from a turbulence-model
-failure or a numerical pathology. Crucially, this \emph{reinforces} the methodology:
-because the momentum field at a given station need not match a DNS profile at a different
-Reynolds number, calibrating in the station-invariant, self-similar $T(u)$ space is the
-correct and robust choice---and Check 2 (collapse) and Check 3 (physical \Prt{} recovery)
-hold regardless. The \Prt{} result is therefore a genuine physical correction, not a
-fudge factor.
+With the corrected DNS-consistent baseline the velocity-space concern is
+\textbf{largely resolved}: in wall units the RANS momentum field now collapses onto the
+DNS/log-law ($\utau = \SI{63.2}{m/s}$ vs DNS $\SI{67.6}{m/s}$), and the wall-shear
+forensics show a healthy, developing turbulent boundary layer. The small residual gap to
+the DNS ($Re_\tau=328$ vs $646$) is a benign Reynolds-number/flow-state difference---the
+RANS plate is still developing---\emph{not} a turbulence-model failure or numerical
+pathology. This \emph{reinforces} the methodology twice over: the momentum field
+underpinning the calibration is now validated directly, and because the $T(u)$
+\emph{shape} is self-similar (only weakly Reynolds-dependent), \Prt{} remains the correct
+single knob even where the momentum states differ---though its calibrated \emph{value},
+which sets the $T(u)$ \emph{level}, must be fixed at matched Reynolds number (Section~6).
+Check 2 (collapse) and Check 3 (physical \Prt{} recovery) therefore rest on a sound
+momentum solution, with their numeric values pending the matched-Re recalibration. The
+\Prt{} result is a genuine physical correction, not a fudge factor.
 
 % ============================================================
 \section{Next Steps and Plan}
 % ============================================================
+\paragraph{Where this memo stands.} Check~1 and the wall-shear forensics
+(Section~\ref{sec:forensics}) use the corrected derived-Re, CFL-250 baseline.
+Checks~2--3 and the headline result (Section~1) still use the earlier 1A runs
+(fixed $Re=\num{5e6}$). A direct test shows the corrected baseline \emph{already} halves
+the $\Prt=0.9$ error in $T(u)$ space (level offset $+1.24\!\to\!+0.58$, raw RMSE
+$1.28\!\to\!0.63$ vs DNS) \emph{before any calibration}. Because \Prt{} sets that level,
+the calibrated $\Prt=0.566$ and the $-61.3\%$ headline are \textbf{provisional} and
+expected to move once recalibrated at matched Reynolds number. Closing this gap is the
+immediate next action (item~1).
+
 \begin{enumerate}[nosep]
-  \item \textbf{Converged baseline (highest value).} Re-run the $\Prt=0.9$ baseline to a
-        converged energy residual ($\mathrm{rms}[\rho E] \lesssim -5$); regenerate Check 1.
-  \item \textbf{Matched-Reynolds comparison.} Where feasible, run RANS at the DNS
-        Reynolds number (or compare at matched $Re_\tau$) to remove the flow-state
-        confound from the wall-unit comparison.
+  \item \textbf{Matched-Re recalibration (1B) --- immediate next step.} Re-run the Brent
+        \Prt{} calibration for the M14Tw018 case at the derived Reynolds number and
+        CFL~250, refresh \texttt{optimization\_log.csv}, then regenerate Checks~2--3 and
+        the Section~1 headline against the corrected baseline and the new calibrated run.
+        This replaces the provisional $\Prt=0.566$ / $-61.3\%$ with matched-Re values.
+  \item \textbf{Deeper baseline convergence.} The corrected derived-Re baseline reaches
+        $\mathrm{rms}[\rho E]=-1.63$ (up from $-0.70$); push further toward
+        $\lesssim -5$ and confirm wall-heat-flux (QoI) stationarity.
   \item \textbf{Transform consistency.} Optionally compare against the Trettel--Larsson
         transform (DNS column 26) in addition to van Driest, which is known to collapse
         cold-wall hypersonic profiles better.
@@ -282,8 +322,10 @@ fudge factor.
 
 \vspace{0.5em}
 \noindent\textbf{Key data.} Optimal $\Prt = 0.566$ (RMSE $0.286$); baseline $\Prt=0.9$
-(RMSE $0.739$); DNS BL-avg $\Prt = 0.639$. RANS $\utau = \SI{14.7}{m/s}$ vs DNS
-$\SI{67.6}{m/s}$; $Re_\tau = 182$ vs $646$; wall $p = \SI{244}{Pa}$ vs freestream
-$\SI{109}{Pa}$. Convergence: $\mathrm{rms}[\rho]=-6.1$, $\mathrm{rms}[\rho E]=-0.70$.
+(RMSE $0.739$); DNS BL-avg $\Prt = 0.639$. Corrected derived-Re baseline at
+$x=\SI{1.5}{m}$: RANS $\utau = \SI{63.2}{m/s}$ vs DNS $\SI{67.6}{m/s}$;
+$Re_\tau = 328$ vs $646$; $\delta_{99}=\SI{27.8}{mm}$; wall $p = \SI{285}{Pa}$ vs
+freestream $\SI{230}{Pa}$; unit-$Re=\SI{1.07e7}{}$/m. Convergence:
+$\mathrm{rms}[\rho]=-7.1$, $\mathrm{rms}[\rho E]=-1.63$.
 
 \end{document}

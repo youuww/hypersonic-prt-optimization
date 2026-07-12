@@ -17,7 +17,7 @@ from datetime import datetime
 # optimizer is not clipped for low-Mach cases whose optimum sits near ~0.9.
 BOUNDS = (0.3, 1.2)
 TOLERANCE = 1e-3
-MAX_ITER = 8
+MAX_ITER = 6
 LOG_FILE = "optimization_log.csv" # Log File - Csv
 
 # Maps a --case name to its FlowCondition factory. Default is the unified
@@ -225,9 +225,9 @@ if __name__ == "__main__":
             shutil.move(str(src), str(dst))
             print(f"       -> Moved: {f_name}")
 
-    # --- Rename run folder to: geometry_niter_date (e.g. flatplate_M14_5iter_260207) ---
+    # --- Rename run folder to: case_niter_date (e.g. M14Tw018_5iter_260207) ---
     n_iter = len(history)
-    geometry = runner.base_config.stem  # e.g. turb_SA_flatplate_M14Tw018
+    geometry = args.case  # case-specific (e.g. M14Tw018, M6Tw025) - NOT the shared config filename
     date_short = datetime.now().strftime("%y%m%d")
     final_name = f"{geometry}_{n_iter}iter_{date_short}"
     run_dir = runner.RESULTS_DIR

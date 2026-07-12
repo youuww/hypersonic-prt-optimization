@@ -38,6 +38,7 @@ from case_config import FlowCondition
 from su2_interface import SU2Interface
 from surrogate import PrtSurrogate
 from active_loop import ActiveCalibrationLoop, Decision
+from run_production import OPTIMAL_PRT, CASE_FACTORIES
 
 # ------------------------------------------------------------------ #
 #                         Configuration                                #
@@ -75,40 +76,59 @@ logger = logging.getLogger(__name__)
 #     CFD callback: run Brent optimization at a given flow condition   #
 # ------------------------------------------------------------------ #
 
-def run_cfd_at_point(x_candidate: Tensor) -> tuple[float, float]:
+def _dns_case_for(x_candidate: Tensor) -> FlowCondition:
+    """Map a (discrete) acquisition point back to its DNS FlowCondition.
+
+    Acquisition is restricted to the 5 DNS feature vectors, so every proposed
+    point equals one of the DNS cases.  Recovering the exact
+    :class:`FlowCondition` gives the real NASA freestream (t_inf, p_inf,
+    derived Re) and the matching DNS profile for ``calculate_loss`` — no
+    placeholder freestream and no interpolated target.  We match to the nearest
+    DNS case by feature-vector distance (an exact hit under discrete acquisition).
+    """
+    x = x_candidate.squeeze().tolist()
+    best, best_d = None, float("inf")
+    for flow in FlowCondition.all_dns_cases():
+        d = sum((a - b) ** 2 for a, b in zip(flow.feature_vector, x))
+        if d < best_d:
+            best, best_d = flow, d
+    return best
+
+
+def run_cfd_at_point(x_candidate: Tensor) -> tuple[float, float, float]:
     """Run the full SU2 optimization pipeline at a candidate point.
 
     Given X = [Mach, Tw/Taw, theta_pg], this function:
-      1. Creates a FlowCondition from the feature vector
+      1. Recovers the DNS FlowCondition for the (discrete) candidate point
       2. Creates an SU2Interface for that condition
       3. Runs Brent's method to find the optimal Pr_t
-      4. Returns (optimal_Pr_t, best_RMSE)
+      4. Returns (optimal_Pr_t, best_RMSE, obs_var)
+
+    ``obs_var`` is the per-point GP observation variance
+    (``FlowCondition.observation_noise_var``): air cases get the trusted noise
+    tier, while a non-air case (M8 nitrogen) is automatically down-weighted via
+    its ``fluid`` field.
 
     NOTE: This function currently supports flat-plate cases only
     (pg_angle = 0).  Ramp support requires a mesh generator and
     will be added in Phase 3 of the thesis.
+
+    Freestream consistency: because acquisition is DISCRETE over the 5 DNS
+    feature vectors (see ``ActiveCalibrationLoop.choices``), the candidate maps
+    back to a real DNS ``FlowCondition`` with the accurate NASA freestream and a
+    real DNS target — resolving the former placeholder-freestream limitation.
     """
     x = x_candidate.squeeze().tolist()
-    mach, tw_ratio, pg_angle = x[0], x[1], x[2]
 
+    flow = _dns_case_for(x_candidate)
     logger.info(
-        "=== CFD CALLBACK: M=%.1f, Tw/Taw=%.3f, theta=%.1f ===",
-        mach, tw_ratio, pg_angle,
-    )
-
-    # Build flow condition for this point. Re is derived from (mach, t_inf,
-    # p_inf) inside FlowCondition, so it stays consistent with the freestream.
-    flow = FlowCondition(
-        mach=mach,
-        t_inf=47.4,       # TODO: parameterize per altitude / test matrix
-        p_inf=1122.0,      # TODO: parameterize
-        tw_ratio=tw_ratio,
-        pg_angle=pg_angle,
+        "=== CFD CALLBACK: M=%.2f, Tw/Taw=%.3f, theta=%.1f -> DNS case %s ===",
+        x[0], x[1], x[2], flow.label,
     )
     logger.info("Flow condition:\n%s", flow.summary())
 
     runner = SU2Interface(flow=flow, num_cores=4)
-    runner.ITERATIONS = 30000   # production iteration count
+    runner.ITERATIONS = 6000 # 30000 production iteration count. 6000 to find Opt_Prt and than do 30000.
 
     best_prt = None
     best_rmse = 999.0
@@ -152,35 +172,48 @@ def run_cfd_at_point(x_candidate: Tensor) -> tuple[float, float]:
     elapsed = time.time() - t0
 
     optimal_prt = res.x if best_prt is None else best_prt
+    obs_var = flow.observation_noise_var
     logger.info(
-        "=== CFD COMPLETE: Pr_t*=%.4f, RMSE=%.5f, time=%.0fs ===",
-        optimal_prt, best_rmse, elapsed,
+        "=== CFD COMPLETE: Pr_t*=%.4f, RMSE=%.5f, obs_var=%.2e, time=%.0fs ===",
+        optimal_prt, best_rmse, obs_var, elapsed,
     )
 
-    return optimal_prt, best_rmse
+    return optimal_prt, best_rmse, obs_var
 
 
 # ------------------------------------------------------------------ #
 #                         Seed data                                    #
 # ------------------------------------------------------------------ #
 
-def get_seed_data() -> tuple[Tensor, Tensor]:
+def get_seed_data() -> tuple[Tensor, Tensor, Tensor]:
     """Return the initial training data from completed calibrations.
 
-    Currently contains only the Mach 14 flat-plate result from the
-    AIAA paper.  As we perform calibrations at other Mach numbers,
-    add them here (or load from a CSV).
+    Each entry pairs a :class:`FlowCondition` (the physics) with its
+    RANS-optimal Pr_t.  Per-point observation variance comes from
+    ``FlowCondition.observation_noise_var`` (single source of truth), so a
+    non-air case (e.g. M8 nitrogen) is automatically down-weighted.
+
+    All five DNS flat-plate cases are now real SU2 Brent calibrations at the
+    matched derived Re (``run_production.OPTIMAL_PRT`` is the single source of
+    truth for the targets).  The M14 optimum is 0.650 (matched-Re), which
+    SUPERSEDES the old provisional 0.566 (fit to the earlier, worse fixed-Re
+    baseline).  Production runs at higher iteration count may refine these.
     """
-    X = torch.tensor([
-        # [Mach, Tw/Taw, theta_pg]
-        [13.6, 0.186, 0.0],
-    ], dtype=torch.float64)
+    calibrated: list[tuple[FlowCondition, float]] = [
+        (factory(), OPTIMAL_PRT[case]) for case, factory in CASE_FACTORIES.items()
+    ]
 
-    Y = torch.tensor([
-        [0.566],      # optimal Pr_t from Brent optimization
-    ], dtype=torch.float64)
-
-    return X, Y
+    X = torch.tensor(
+        [flow.feature_vector for flow, _ in calibrated], dtype=torch.float64
+    )
+    Y = torch.tensor(
+        [[prt] for _, prt in calibrated], dtype=torch.float64
+    )
+    Yvar = torch.tensor(
+        [[flow.observation_noise_var] for flow, _ in calibrated],
+        dtype=torch.float64,
+    )
+    return X, Y, Yvar
 
 
 # ------------------------------------------------------------------ #
@@ -219,11 +252,21 @@ def main() -> None:
         logger.info("Resuming from checkpoint: %s", gp_dir)
         surrogate = PrtSurrogate.load(gp_dir)
     else:
-        X_seed, Y_seed = get_seed_data()
+        X_seed, Y_seed, Yvar_seed = get_seed_data()
         logger.info("Initializing GP with %d seed points", X_seed.shape[0])
-        surrogate = PrtSurrogate(train_X=X_seed, train_Y=Y_seed)
+        surrogate = PrtSurrogate(
+            train_X=X_seed, train_Y=Y_seed, train_Yvar=Yvar_seed
+        )
 
     logger.info("\n%s", surrogate.summary())
+
+    # --- Discrete design space: acquire only over the 5 DNS feature vectors ---
+    # Real ground truth exists only at the DNS cases, so we restrict acquisition
+    # to them (avoids baked interpolation error; keeps freestream consistent).
+    choices = torch.tensor(
+        [flow.feature_vector for flow in FlowCondition.all_dns_cases()],
+        dtype=torch.float64,
+    )
 
     # --- Build the active learning loop ---
     loop = ActiveCalibrationLoop(
@@ -231,6 +274,7 @@ def main() -> None:
         uncertainty_threshold=UNCERTAINTY_THRESHOLD,
         beta=UCB_BETA,
         checkpoint_dir=CHECKPOINT_DIR,
+        choices=choices,
     )
 
     # --- CFD callback (None if dry-run) ---

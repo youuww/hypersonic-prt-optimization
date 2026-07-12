@@ -32,7 +32,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from case_config import FlowCondition
+from case_config import (
+    FlowCondition,
+    OBS_NOISE_STD_AIR,
+    OBS_NOISE_STD_NONAIR,
+)
 from surrogate import PrtSurrogate
 from active_loop import ActiveCalibrationLoop
 
@@ -44,13 +48,12 @@ DNS_PRT_PLACEHOLDER = {
     "M2.5_Tw1.00": 0.944,
     "M5.86_Tw0.25": 0.947,
     "M5.86_Tw0.76": 0.854,
-    "M7.86_Tw0.48": 0.929,    # nitrogen -> elevated noise
+    "M7.86_Tw0.48": 0.929,    # nitrogen -> elevated noise (see case_config)
     "M13.68_Tw0.18": 0.639,
 }
 
-# Observation noise (std) per data quality tier.
-SIGMA_AIR = 0.01     # trustworthy air cases
-SIGMA_N2 = 0.05      # M8: nitrogen-vs-air mismatch => trust less (5x std, 25x var)
+# Per-point observation noise is now defined once in case_config
+# (FlowCondition.observation_noise_var), keyed on the case's working fluid.
 
 
 def build_placeholder_dataset() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -60,8 +63,7 @@ def build_placeholder_dataset() -> tuple[torch.Tensor, torch.Tensor, torch.Tenso
         prt = DNS_PRT_PLACEHOLDER[flow.label]
         X_rows.append(flow.feature_vector)            # [Mach, Tw/Taw, theta]
         Y_rows.append([prt])
-        sigma = SIGMA_N2 if "7.86" in flow.label else SIGMA_AIR
-        Yvar_rows.append([sigma ** 2])
+        Yvar_rows.append([flow.observation_noise_var])
 
     X = torch.tensor(X_rows, dtype=torch.float64)
     Y = torch.tensor(Y_rows, dtype=torch.float64)
@@ -78,7 +80,7 @@ def check_uncertainty_behavior(gp: PrtSurrogate, X: torch.Tensor) -> None:
     for flow, mean, std in zip(
         FlowCondition.all_dns_cases(), res.mean, res.std
     ):
-        tag = "  <- N2 (elevated noise)" if "7.86" in flow.label else ""
+        tag = "" if flow.is_air else "  <- N2 (elevated noise)"
         print(
             f"  {flow.label:16s}: Pr_t={mean:.3f} +/- {std:.3f}{tag}"
         )
@@ -141,7 +143,7 @@ def plot_gp_slice(gp: PrtSurrogate, X: torch.Tensor, Y: torch.Tensor) -> Path:
 
     # Mark the N2 point
     for i, flow in enumerate(FlowCondition.all_dns_cases()):
-        if "7.86" in flow.label:
+        if not flow.is_air:
             ax.annotate(
                 "M8 (N$_2$, elevated noise)",
                 (x_np[i, 0], y_np[i]),
@@ -175,7 +177,8 @@ def main() -> None:
 
     X, Y, Yvar = build_placeholder_dataset()
     print(f"\nBuilt dataset: {X.shape[0]} points, 3 features")
-    print(f"  M8 noise std = {SIGMA_N2} (air cases = {SIGMA_AIR})")
+    print(f"  Non-air (M8) noise std = {OBS_NOISE_STD_NONAIR} "
+          f"(air cases = {OBS_NOISE_STD_AIR})")
 
     gp = PrtSurrogate(train_X=X, train_Y=Y, train_Yvar=Yvar)
     print("\n" + gp.summary())

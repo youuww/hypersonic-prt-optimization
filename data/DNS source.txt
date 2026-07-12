@@ -1,0 +1,14 @@
+https://arc.aiaa.org/doi/10.2514/1.J057296 - The Paper
+
+NASA Langley Turbulence Modeling Resource Zhang Duan Choudhari 2018
+
+Direct Numerical Simulation Database for Hypersonic Turbulent Boundary Layers
+
+https://tmbwg.github.io/turbmodels/ - New Data Page
+
+https://tmbwg.github.io/turbmodels/other_dns.html - Data from DNS
+
+https://tmbwg.github.io/turbmodels/Other_DNS_Data/supersonic_hypersonic_flatplate.html - DNS for Flat Plate(My Data) 
+
+
+https://www.nasa.gov/nasa-turbulence-modeling-resource/ - Old Data Page

@@ -90,16 +90,16 @@ OUTPUT_DIR = SCRIPT_DIR
 # ==========================================================================
 #                              DATA LOADING
 # ==========================================================================
-def detect_optimal_pr() -> tuple[float, float]:
+def detect_optimal_pr(log_file: Path = LOG_FILE) -> tuple[float, float]:
     """Return (optimal Pr_t, its RMSE) from the optimization log (min RMSE)."""
-    log = pd.read_csv(LOG_FILE)
+    log = pd.read_csv(log_file)
     best = log.loc[log["RMSE"].idxmin()]
     return float(best["Pr_t"]), float(best["RMSE"])
 
 
-def baseline_rmse() -> float:
-    """Return the Pr_t = 0.9 baseline RMSE (iteration 0 of the log)."""
-    log = pd.read_csv(LOG_FILE)
+def baseline_rmse(log_file: Path = LOG_FILE) -> float:
+    """Return the Pr_t = 0.9 baseline RMSE (row nearest Pr_t=0.9 in the log)."""
+    log = pd.read_csv(log_file)
     row = log.loc[(log["Pr_t"] - PR_T_DEFAULT).abs().idxmin()]
     return float(row["RMSE"])
 
@@ -330,7 +330,7 @@ def check1_van_driest(base: pd.DataFrame, calib: Optional[pd.DataFrame],
     ax.set_ylabel(r"$u_{vd}^+$")
     ax.set_xlim(1, max(vd_b["y_plus"].max(), 1e3))
     ax.set_ylim(0, 30)
-    ax.legend(loc="upper left", frameon=True, fancybox=False, edgecolor="black")
+    ax.legend(loc="lower right", frameon=True, fancybox=False, edgecolor="black")
     ax.grid(True, which="both", linestyle="--", alpha=0.3)
     _save(fig, "check1_van_driest_uplus")
 
@@ -367,7 +367,7 @@ def check2_tu_shape(base: pd.DataFrame, calib: pd.DataFrame, dns: pd.DataFrame,
     ax.set_xlabel(r"$u / U_\infty$")
     ax.set_ylabel(r"$T / T_\infty$")
     ax.set_xlim(0, 1.02)
-    ax.legend(loc="upper right", frameon=True, fancybox=False, edgecolor="black")
+    ax.legend(loc="lower left", frameon=True, fancybox=False, edgecolor="black")
     ax.grid(True, which="major", linestyle="--", alpha=0.4)
     _save(fig, "check2_tu_shape")
 
@@ -419,6 +419,13 @@ def main() -> None:
     ap.add_argument("--baseline", type=Path, default=None,
                     help="Path to the Pr_t=0.9 baseline flow.dat "
                          "(default: results/Pr_0.9000/flow.dat).")
+    ap.add_argument("--calibrated", type=Path, default=None,
+                    help="Path to the calibrated (optimal Pr_t) flow.dat "
+                         "(default: results/Pr_<opt>/flow.dat, opt from --log).")
+    ap.add_argument("--log", type=Path, default=None,
+                    help="Path to the optimization_log.csv used to detect the "
+                         "optimal Pr_t and baseline RMSE "
+                         "(default: results/optimization_log.csv).")
     ap.add_argument("--check1-only", action="store_true",
                     help="Regenerate only Check 1 (van Driest momentum check) "
                          "for the new baseline; defer Check 2/3 to 1B.")
@@ -441,14 +448,16 @@ def main() -> None:
         print("=" * 66)
         return
 
-    pr_opt, pr_rmse = detect_optimal_pr()
-    base_rmse = baseline_rmse()
+    log_file = args.log or LOG_FILE
+    pr_opt, pr_rmse = detect_optimal_pr(log_file)
+    base_rmse = baseline_rmse(log_file)
     pr_opt_str = f"{pr_opt:.4f}"
     print(f"Optimal Pr_t = {pr_opt:.3f} (RMSE {pr_rmse:.3f})  |  "
           f"baseline Pr_t=0.9 RMSE {base_rmse:.3f}")
 
-    calib = load_su2_profile(RESULTS_ROOT / f"Pr_{pr_opt_str}" / "flow.dat")
-    print(f"Loaded calibrated ({len(calib)} nodes)")
+    calib_path = args.calibrated or (RESULTS_ROOT / f"Pr_{pr_opt_str}" / "flow.dat")
+    calib = load_su2_profile(calib_path)
+    print(f"Loaded calibrated ({len(calib)} nodes) from {calib_path}")
 
     check1_van_driest(base, calib, dns, pr_opt)
     check2_tu_shape(base, calib, dns, pr_opt)

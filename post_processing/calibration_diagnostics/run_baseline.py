@@ -48,7 +48,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--iter", type=int, default=30000)
     ap.add_argument("--cores", type=int, default=4)
-    ap.add_argument("--cfl", type=float, default=150.0,
+    ap.add_argument("--cfl", type=float, default=250.0,
                     help="Adaptive-CFL ceiling chosen by run_cfl_probe.py.")
     ap.add_argument("--save-freq", type=int, default=2000)
     args = ap.parse_args()

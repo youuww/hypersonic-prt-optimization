@@ -38,6 +38,16 @@ S_SUTH: float = 110.4           # Sutherland constant [K]
 # Characteristic length used by SU2's REYNOLDS_LENGTH (matches the config).
 REYNOLDS_LENGTH: float = 1.0    # [m]
 
+# ---- GP observation-noise tiers (standard deviation, in Pr_t units) ----
+# The GP surrogate down-weights less-trustworthy calibration targets via
+# per-point fixed noise (heteroscedastic FixedNoise GP).  Air DNS cases are
+# trusted; a non-air case (the M8 nitrogen DNS calibrated against an air SU2
+# model) carries a fluid-mismatch bias, so it is given a larger observation
+# noise -> the GP does not interpolate it exactly.  Single source of truth,
+# consumed by both validate_surrogate.py and run_active_learning.py.
+OBS_NOISE_STD_AIR: float = 0.01
+OBS_NOISE_STD_NONAIR: float = 0.05
+
 
 def sutherland_viscosity(t: float) -> float:
     """Dynamic viscosity of air via Sutherland's law [Pa*s].
@@ -87,6 +97,10 @@ class FlowCondition:
     mesh_file: str = "mesh_flatplate_turb_545x385.su2"
     dns_data_path: Optional[Path] = None
     label: str = ""
+    fluid: str = "air"
+    """DNS working fluid ("air" or "nitrogen").  Drives the GP observation
+    noise: the SU2 model is air, so a non-air DNS target carries a
+    fluid-mismatch bias and is trusted less (see ``observation_noise_std``)."""
 
     # ------------------------------------------------------------------ #
     #                        Validation                                    #
@@ -164,6 +178,29 @@ class FlowCondition:
         return [self.mach, self.tw_ratio, self.pg_angle]
 
     # ------------------------------------------------------------------ #
+    #              GP data-quality (observation noise)                     #
+    # ------------------------------------------------------------------ #
+    @property
+    def is_air(self) -> bool:
+        """True if the DNS working fluid is air (matches the SU2 model)."""
+        return self.fluid.strip().lower() == "air"
+
+    @property
+    def observation_noise_std(self) -> float:
+        """GP observation-noise std (Pr_t units) reflecting data trust.
+
+        Non-air DNS cases (e.g. the M8 nitrogen case calibrated against an
+        air SU2 model) carry a fluid-mismatch bias, so they get the larger
+        ``OBS_NOISE_STD_NONAIR`` and the GP does not interpolate them exactly.
+        """
+        return OBS_NOISE_STD_AIR if self.is_air else OBS_NOISE_STD_NONAIR
+
+    @property
+    def observation_noise_var(self) -> float:
+        """GP observation-noise variance (std^2) for FixedNoise GP training."""
+        return self.observation_noise_std ** 2
+
+    # ------------------------------------------------------------------ #
     #                   Predefined reference cases                         #
     # ------------------------------------------------------------------ #
     @classmethod
@@ -239,14 +276,17 @@ class FlowCondition:
 
         PHYSICS CAVEAT: the DNS working fluid for this case is NITROGEN,
         not air.  Our SU2 config uses air (R=287, Sutherland for air).
-        The normalized T-u profile is only weakly fluid-dependent, but
-        treat this point with extra scrutiny during validation.
+        The normalized T-u profile is only weakly fluid-dependent, but the
+        mismatch is handled explicitly: ``fluid="nitrogen"`` gives this case
+        an elevated GP observation noise (``observation_noise_std``), so the
+        surrogate trusts it less (Option A of the M8 decision).
         """
         return cls(
             mach=7.86, t_inf=51.8, p_inf=386.5, tw_ratio=0.48,
             pg_angle=0.0,
             dns_data_path=cls._dns_profile_path("M8Tw048"),
             label="M7.86_Tw0.48",
+            fluid="nitrogen",
         )
 
     @classmethod

@@ -67,6 +67,7 @@ personal/
 .cursorrules         
 .cursor/             
 CONTEXT.md
+CLAUDE.md
 
 # ----- Temporary Files -----
 *.tmp

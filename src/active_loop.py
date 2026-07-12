@@ -46,7 +46,7 @@ from botorch.acquisition import (
     UpperConfidenceBound,
     qExpectedImprovement,
 )
-from botorch.optim import optimize_acqf
+from botorch.optim import optimize_acqf, optimize_acqf_discrete
 
 from surrogate import PrtSurrogate, DEFAULT_BOUNDS
 
@@ -69,6 +69,7 @@ class StepResult:
     predicted_std: float        # GP std dev at x_candidate (physical units)
     observed_prt: Optional[float] = None    # filled after CFD
     observed_rmse: Optional[float] = None   # filled after CFD
+    observed_var: Optional[float] = None    # per-point GP observation variance (data trust)
     wall_time_sec: float = 0.0      # time taken for this iteration (including CFD if run)
 
     def to_dict(self) -> dict:
@@ -82,6 +83,7 @@ class StepResult:
             "predicted_std": self.predicted_std,
             "observed_prt": self.observed_prt,
             "observed_rmse": self.observed_rmse,
+            "observed_var": self.observed_var,
             "wall_time_sec": self.wall_time_sec,
         }
 
@@ -103,6 +105,14 @@ class ActiveCalibrationLoop:
         Higher beta = more exploration.
     checkpoint_dir : Path
         Where to save iteration logs and model checkpoints.
+    choices : Tensor, shape (n_choices, 3), optional
+        If provided, acquisition is optimized over this DISCRETE set of
+        candidate feature vectors (``optimize_acqf_discrete``) instead of the
+        continuous ``bounds`` box.  For this thesis the choices are exactly the
+        5 DNS feature vectors: the design space has real ground truth only at
+        those points, so restricting acquisition to them avoids baking
+        interpolation error into the GP targets and keeps each proposed point
+        tied to a real NASA freestream (no placeholder / interpolated target).
     """
 
     def __init__(
@@ -112,11 +122,15 @@ class ActiveCalibrationLoop:
         uncertainty_threshold: float = 0.03,
         beta: float = 2.0,
         checkpoint_dir: Path = Path("checkpoints"),
+        choices: Optional[Tensor] = None,
     ) -> None:
         self.surrogate = surrogate
         self.bounds = (
             bounds if bounds is not None else DEFAULT_BOUNDS
         ).to(torch.float64)
+        self.choices = (
+            choices.to(torch.float64) if choices is not None else None
+        )
         self.uncertainty_threshold = uncertainty_threshold
         self.beta = beta
         self.checkpoint_dir = Path(checkpoint_dir)
@@ -133,10 +147,18 @@ class ActiveCalibrationLoop:
         cls,
         train_X: Tensor,
         train_Y: Tensor,
+        train_Yvar: Optional[Tensor] = None,
         **kwargs,
     ) -> ActiveCalibrationLoop:
-        """Build surrogate from raw data and create the loop."""
-        surrogate = PrtSurrogate(train_X=train_X, train_Y=train_Y)
+        """Build surrogate from raw data and create the loop.
+
+        Pass ``train_Yvar`` (per-point observation variance) to enable the
+        heteroscedastic FixedNoise GP — required for consistent per-point
+        noise (e.g. down-weighting the M8 nitrogen case).
+        """
+        surrogate = PrtSurrogate(
+            train_X=train_X, train_Y=train_Y, train_Yvar=train_Yvar
+        )
         return cls(surrogate=surrogate, **kwargs)
 
     # ------------------------------------------------------------------ #
@@ -152,6 +174,10 @@ class ActiveCalibrationLoop:
         We MINIMIZE predicted Pr_t error, so we negate UCB to find
         the point with highest uncertainty (= highest information gain).
 
+        If ``self.choices`` is set, acquisition is restricted to that discrete
+        candidate set (``optimize_acqf_discrete``); otherwise it optimizes over
+        the continuous ``bounds`` box.
+
         Returns
         -------
         Tensor, shape (1, 3) — the proposed [Mach, Tw/Taw, theta_pg].
@@ -161,13 +187,20 @@ class ActiveCalibrationLoop:
             beta=self.beta,
         )
 
-        candidate, acq_value = optimize_acqf(
-            acq_function=acqf,
-            bounds=self.bounds,
-            q=1,
-            num_restarts=10,
-            raw_samples=256,
-        )
+        if self.choices is not None:
+            candidate, acq_value = optimize_acqf_discrete(
+                acq_function=acqf,
+                q=1,
+                choices=self.choices,
+            )
+        else:
+            candidate, acq_value = optimize_acqf(
+                acq_function=acqf,
+                bounds=self.bounds,
+                q=1,
+                num_restarts=10,
+                raw_samples=256,
+            )
         logger.info(
             "Acquisition suggests X = %s  (acq_value = %.4f)",
             candidate.squeeze().tolist(),
@@ -216,7 +249,10 @@ class ActiveCalibrationLoop:
         Parameters
         ----------
         run_cfd_callback : callable, optional
-            Function with signature  (x: Tensor) -> (optimal_prt, rmse).
+            Function with signature
+            ``(x: Tensor) -> (optimal_prt, rmse, obs_var)``, where ``obs_var``
+            is the per-point GP observation variance for the new point
+            (encodes data trust; e.g. elevated for a non-air case).
             Called when the GP is uncertain and needs a real CFD run.
             If None and CFD is needed, the step records NEEDS_CFD but
             does not run anything (dry-run mode).
@@ -246,14 +282,17 @@ class ActiveCalibrationLoop:
         # 3. If uncertain and callback available — run CFD
         if decision == Decision.NEEDS_CFD and run_cfd_callback is not None:
             logger.info("Triggering CFD at X = %s ...", x_list)
-            observed_prt, observed_rmse = run_cfd_callback(x_candidate)
+            observed_prt, observed_rmse, observed_var = run_cfd_callback(x_candidate)
 
             result.observed_prt = observed_prt
             result.observed_rmse = observed_rmse
+            result.observed_var = observed_var
 
-            # 4. Update GP with the new observation
+            # 4. Update GP with the new observation (carry its per-point noise
+            #    so the FixedNoise GP stays consistent, e.g. for non-air cases).
             Y_new = torch.tensor([[observed_prt]], dtype=torch.float64)
-            self.surrogate.update(x_candidate, Y_new)
+            Yvar_new = torch.tensor([[observed_var]], dtype=torch.float64)
+            self.surrogate.update(x_candidate, Y_new, Yvar_new=Yvar_new)
 
         result.wall_time_sec = time.time() - t_start
         self.history.append(result)
